@@ -18,13 +18,24 @@ date-ts2dt(){
 
 logtime-start() {
   TS_START=$(date-ts)
+  LT_START_MSG="$@"
   echo "Start timer: $TS_START $@"
+}
+logtime-continue() {
+  echo "Todo: figure out pausing."
+#  TS_START=$(date-ts)
+#  TS_START=$(($TS_START - $SECONDS))
+#  SECONDS=$((TS_END - TS_START))
+#  echo "Start continuing: $SECONDS $@"
 }
 logtime-stop() {
   TS_END=$(date-ts)
+  LT_STOP_MSG=$@
   SECONDS=$((TS_END - TS_START))
   hms=$(logtime-duration $SECONDS) 
   echo "Timer stopped with: $hms"
+  echo "startmsg: $LT_START_MSG"
+  echo "endmsg: $LT_STOP_MSG"
 }
 
 logtime-ts() {
@@ -34,7 +45,8 @@ logtime-ts() {
 
 logtime-hms() {
   TS=$(date-ts)
-  echo "$TS $hms $@" >> $TIMELOG
+  logtime-stop
+  echo "$TS $hms $LT_PROJECT $LT_START_MSG $LT_STOP_MSG $@" >> $TIMELOG
 }
 
 
@@ -64,8 +76,16 @@ logtime-duration(){
   echo "${H}h${M}m${S}s";
 }
 
+logtime-project(){
+  LT_PROJECT=$1
+}
+
 alias lt="logtime-logmsg $@"
+alias ltstart="logtime-start $@"
+alias ltstop="logtime-stop $@"
+alias lth="logtime-hms $@"
 alias ltd="logtime-ts-human $@"
+alias ltp="logtime-project $@"
 alias ltcat="cat $TIMELOG"
 alias ltls="logtime-ls"
 alias ltlog="logtime-ls"
