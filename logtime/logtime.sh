@@ -16,10 +16,27 @@ date-ts2dt(){
 
 }
 
+logtime-start() {
+  TS_START=$(date-ts)
+  echo "Start timer: $TS_START $@"
+}
+logtime-stop() {
+  TS_END=$(date-ts)
+  SECONDS=$((TS_END - TS_START))
+  hms=$(logtime-duration $SECONDS) 
+  echo "Timer stopped with: $hms"
+}
+
 logtime-ts() {
   TS=$(date-ts)
   echo "$TS $@" >> $TIMELOG
 }
+
+logtime-hms() {
+  TS=$(date-ts)
+  echo "$TS $hms $@" >> $TIMELOG
+}
+
 
 logtime-ts-unix() {
   TS=$(date-ts)
@@ -38,6 +55,13 @@ logtime-ts-human() {
 
 logtime-ls(){
    cat $TIMELOG
+}
+
+logtime-duration(){
+  H=$(($1 / 3600));
+  M=$((($1 % 3600) / 60));
+  S=$(($1 % 60));
+  echo "${H}h${M}m${S}s";
 }
 
 alias lt="logtime-logmsg $@"
