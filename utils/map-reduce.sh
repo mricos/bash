@@ -24,3 +24,10 @@ p-reduce(){
   echo "Contents of total reduce:  $totalfile:"
   cat $totalfile
 }
+
+
+#define VAR <<'EOF'
+#abc'asdf"
+#EOF
+#echo "$VAR"
+define(){ IFS='\n' read -r -d '' ${1} || true; }
