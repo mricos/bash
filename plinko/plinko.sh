@@ -48,10 +48,14 @@ plinko-node() {
   # intrinsict
   w=$(($NODEWIDTH))px  
   h=$(($NODEHEIGHT))px
+  w="10%"
+  h="10%"
 
   #derived
   x=$( bc <<< "$NODEWIDTH * $n + $k")px  
   y=$( bc <<< "$NODEWIDTH * $m + $k")px  
+  x=$( bc <<< "$NODEWIDTH * $n + $k")%
+  y=$( bc <<< "$NODEWIDTH * $m + $k")%
   echo "<div 
     id="$m,$n,$k"
     class=\"plinko-node\" 

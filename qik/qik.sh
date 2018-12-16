@@ -7,8 +7,9 @@ QIKREMOTEHOST=localhost
 QIKREMOTEDIR=~/qik/qik
 
 qik(){
-  if [[ $# > 1 ]]; then  # always do this
-    TS=$(ts)
+  echo "qiking file $1"
+  if [[ $# > 0 ]]; then  # always do this
+    TS=$(date +%s)
     echo "qik'd file with TS=$TS"
     cp $1 .qik/$1.$TS
     

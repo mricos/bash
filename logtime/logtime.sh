@@ -103,7 +103,7 @@ logtime-status(){
   TS=$(date +%s)
 
   if [ -z "$LT_STOP" ]; then
-     LT_ELAPSED=$(($TS-$LT_START))
+     LT_ELAPSED=$(($TS-$LT_START)) # fails if LT_START not defined
   else
      LT_ELAPSED=$(($LT_STOP - $LT_START))
   fi
