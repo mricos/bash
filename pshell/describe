@@ -1,0 +1,12 @@
+pshell: Electron shell theory comes from Sommerfield's modification
+of the Bohr model- he added slghtly elliptical orbits (quantum
+numbers l and m) to explain the file lines of Hydrogen spectra.
+
+The P in electron theory stands for principle. The P shell is 
+contained by the all shells except the sharp shell, S.
+
+In electron theory the P Shell is considered a subshell located 
+in the heart of all shells (L, M, M) except smallest subshell, K. 
+
+In the context of this Bash script, the p-shell is included 
+by larger shells to provide additional commands to common shell.
