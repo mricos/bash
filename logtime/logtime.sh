@@ -1,43 +1,35 @@
-s(){ source $BASH_SOURCE; }
-v(){ vi $BASH_SOURCE; }
-c(){ shellcheck $BASH_SOURCE; }
 TIMELOG=~/time.txt
 
-date-ts(){
-    date +%s
-}
-
-date-ts2dt(){
-  if [[ "$1" ]]; then  
-    date --date=@$1; 
-  else
-    date;
-  fi
-
-}
+# date +%s <-- create UNIX epoch time stamp in seconds
+# date --date=@$TS  <-- create datetime string from TS env var
 
 logtime-clear(){
   LT_START=""
   LT_STOP=""
+  LT_TIMER=""
   LT_STOP_MSG=""
+  LT_ARRAY=()
 }
 logtime-start() {
   if [ ! -z "$LT_START" ]; then
     echo "LT_START not empty. Use ltclear to clear."
   else
-    LT_START=$(date-ts)
+    LT_START=$(date +%s)
     LT_TIMER=$LT_START
-    LT_DATA_ARRAY=(one two three)
-    LT_START_MSG="$@"
+    LT_ARRAY=()
+    LT_START_MSG="LT_START.$@"
     echo "Start timer: $LT_START $@"
   fi
 }
- 
+
+logtime-add(){
+    LT_ARRAY+=($(logtime-string $@))
+}
 
 logtime-stop() {
-  LT_STOP=$(date-ts)
+  LT_STOP=$(date +%s)
   LT_STOP_MSG=$@
-  SECONDS=$((TS_END - TS_START))
+  local SECONDS=$((TS_END - TS_START))
   hms=$(logtime-duration $SECONDS) 
   echo "Timer stopped with: $hms"
   echo "startmsg: $LT_START_MSG"
@@ -46,28 +38,34 @@ logtime-stop() {
 
 logtime-continue() {
   echo "Todo: figure out pausing."
-#  LT_START=$(date-ts)
+#  LT_START=$(date +%s)
 #  LT_START=$(($LT_START - $SECONDS))
 #  SECONDS=$((LT_END - LT_START))
 #  echo "Start continuing: $SECONDS $@"
 }
 
-logtime-ts() {
-  TS=$(date-ts)
-  echo "$TS $@" >> $TIMELOG
+logtime-parse() {
+  while IFS= read -r line; do
+      IFS=.; tokens=($line)
+      local tsHuman=$(date -d@${tokens[0]} 2> /dev/null) 
+      if [ ! -z "$tsHuman" ]
+      then
+        printf '%s\n' "$tsHuman"
+        printf '%s\n\n' ${tokens[1]} 
+      fi
+      IFS=$' \t\n'
+  done < "$TIMELOG" 
 }
 
-logtime-hms() {
-  TS=$(date-ts)
-  logtime-stop
-  echo "$TS $hms $LT_PROJECT $LT_START_MSG $LT_STOP_MSG $@" >> $TIMELOG
+
+logtime-string() {
+  local ts=$(date +%s)
+  echo "$ts.\""$@"\""
 }
 
-
-logtime-ts-unix() {
-  TS=$(date-ts)
-  echo "$TS $@" 
-  echo "$TS $@" >> $TIMELOG
+logtime-logmsg(){
+  local ts=$(date +%s)
+  echo "$ts $@" >> $TIMELOG
 }
 
 logtime-ts-human() {
@@ -76,32 +74,19 @@ logtime-ts-human() {
   first=$1
   remain=${all#$first}
   echo "$TS $remain" 
-  echo "$TS $remain" >> $TIMELOG
-}
-
-logtime-logmsg(){
-  TS=$(date +%s)
-  echo "$TS $LT_PROJECT $@" >> $TIMELOG
-}
-
-logtime-ls(){
-   cat $TIMELOG
-}
-
-logtime-duration(){
-  H=$(($1 / 3600));
-  M=$((($1 % 3600) / 60));
-  S=$(($1 % 60));
-  echo "${H}h${M}m${S}s";
-}
-
-logtime-project(){
-  LT_PROJECT=$1
 }
 
 logtime-status(){
   TS=$(date +%s)
 
+  if [ -z "$LT_START" ]; then
+    echo "
+   No timer started. 
+   Use logtime-start <optional message of intention>
+"
+    return 1
+  fi
+ 
   if [ -z "$LT_STOP" ]; then
      LT_ELAPSED=$(($TS-$LT_START)) # fails if LT_START not defined
   else
@@ -117,7 +102,22 @@ logtime-status(){
   echo "LT_START_MSG: $LT_START_MSG"
   echo "LT_STOP_MSG: $LT_STOP_MSG"
   echo "TIMELOG: $TIMELOG"
-  echo "LT_DATA_ARRAY: ${LT_DATA_ARRAY[@]}"
+  echo "LT_ARRAY:"
+  printf "%s\n" "${LT_ARRAY[@]}"
+
+}
+
+logtime-duration(){
+  H=$(($1 / 3600));
+  M=$((($1 % 3600) / 60));
+  S=$(($1 % 60));
+  echo "${H}h${M}m${S}s";
+}
+
+logtime-hms() {
+  TS=$(date +%s)
+  logtime-stop
+  echo "$TS $hms $LT_PROJECT $LT_START_MSG $LT_STOP_MSG $@" >> $TIMELOG
 }
 
 logtime-hms-to-seconds(){
@@ -126,6 +126,7 @@ logtime-hms-to-seconds(){
  echo $seconds
 }
 
+# Porcelain
 alias lt="logtime-logmsg $@"
 alias ltstart="logtime-start $@"
 alias ltstop="logtime-stop $@"
@@ -133,7 +134,7 @@ alias ltstatus="logtime-status"
 alias lth="logtime-hms $@"
 alias ltd="logtime-ts-human $@"
 alias ltp="logtime-project $@"
+alias ltls="cat $TIMELOG"
 alias ltcat="cat $TIMELOG"
-alias ltls="logtime-ls"
-alias ltlog="logtime-ls"
+alias ltlog="cat $TIMELOG"
 alias ltclear="logtime-clear"
