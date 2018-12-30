@@ -7,6 +7,7 @@ logtime-clear(){
   LT_START=0
   LT_STOP=0
   LT_DURATION=0
+  LT_ELAPSED=0
   LT_START_MSG=""
   LT_STOP_MSG=""
   LT_MARK=0
@@ -22,8 +23,8 @@ logtime-start() {
     LT_START=$(date +%s)
     LT_MARK=$LT_START
     LT_DURATION=0
-    LT_START_MSG=$(logtime-string $LT_START.$LT_DURATION $@)
-    #LT_ARRAY+=( "$LT_START_MSG" )
+    LT_ELAPSED=0
+    LT_START_MSG=$@
     echo "Start timer: $LT_START $@"
   fi
 }
@@ -40,9 +41,7 @@ logtime-mark() {
 
 logtime-stop() {
   LT_STOP=$(date +%s)
-  LT_STOP_MSG=$@
   LT_DURATION=$((LT_STOP - LT_START))
-  $(logtime-add "$LT_STOP.$LT_DURATION $@")
 }
 
 logtime-add(){
@@ -56,16 +55,17 @@ logtime-string() {
 }
 
 logtime-commit() {
-  if (( $LT_STOP == 0 )); then
-    echo "Not stopped before commit."
-    return 1
-  fi 
-  
-  echo "$LT_START_MSG"
-  if [ -n "$LT_ARRAY" ]; then
-    printf "  %s\n" "${LT_ARRAY[@]}"
+  LT_STOP=$(date +%s)
+  local str=$@
+  if [ -n "$str" ]; then
+     LT_STOP_MSG=$str
   fi
-  echo "$LT_STOP.$LT_DURATION.\"$LT_STOP_MSG\""
+
+  echo "start.$LT_START.\"$LT_START_MSG\""
+  if [ -n "$LT_ARRAY" ]; then
+    printf "mark.%s\n" "${LT_ARRAY[@]}"
+  fi
+  echo "stop.$LT_STOP.\"$LT_STOP_MSG\".$LT_DURATION"
 }
 
 
@@ -79,7 +79,8 @@ logtime-ts-human() {
 
 logtime-status(){
   TS=$(date +%s)
-  LT_DURATION=$((TS - LT_START))
+  LT_ELAPSED=$((TS - LT_START))
+  local elapsedHms=$(logtime-hms $LT_ELAPSED)
   if [ -z "$LT_START" ]; then
     echo "
    No timer started. 
@@ -87,10 +88,12 @@ logtime-status(){
 "
     return 1
   fi
- 
+
+   
   echo "LT_START: $LT_START"
   echo "LT_STOP: $LT_STOP"
-  echo "LT_DURATION: $LT_DURATION ($hms)"
+  echo "LT_DURATION: $LT_DURATION ( $(logtime-hms $LT_DURATION) )"
+  echo "LT_ELAPSED: $LT_ELAPSED ( $elapsedHms )"
   echo "LT_MARK: $LT_MARK"
   echo "LT_LASTMARK: $LT_LASTMARK"
   echo "LT_MARK_DURATION: $LT_MARK_DURATION"
