@@ -6,8 +6,13 @@ TIMELOG=~/time.txt
 logtime-clear(){
   LT_START=""
   LT_STOP=""
-  LT_TIMER=""
+  LT_DURATION=""
+  LT_START_MSG=""
   LT_STOP_MSG=""
+  LT_MARK=0
+  LT_MARK_DURATION=0
+  LT_LASTMARK=0
+  LT_DURATION=0
   LT_ARRAY=()
 }
 logtime-start() {
@@ -15,58 +20,56 @@ logtime-start() {
     echo "LT_START not empty. Use ltclear to clear."
   else
     LT_START=$(date +%s)
-    LT_TIMER=$LT_START
-    LT_ARRAY=()
-    LT_START_MSG="LT_START.$@"
+    LT_MARK=$LT_START
+    LT_DURATION=0
+    LT_START_MSG=$(logtime-string $LT_START.$LT_DURATION $@)
+    #LT_ARRAY+=( "$LT_START_MSG" )
     echo "Start timer: $LT_START $@"
   fi
 }
 
-logtime-add(){
-    LT_ARRAY+=($(logtime-string $@))
+logtime-mark() {
+  LT_LASTMARK=$LT_MARK
+  LT_MARK=$(date +%s)
+  LT_MARK_DURATION=$((LT_MARK - LT_LASTMARK))
+  IFS_ORIG=$IFS
+  IFS=$'\n'  
+  LT_ARRAY+=($(logtime-string $LT_MARK.$LT_MARK_DURATION $@))
+  IFS=$IFS_ORIG
 }
 
 logtime-stop() {
   LT_STOP=$(date +%s)
   LT_STOP_MSG=$@
-  local SECONDS=$((TS_END - TS_START))
-  hms=$(logtime-duration $SECONDS) 
-  echo "Timer stopped with: $hms"
-  echo "startmsg: $LT_START_MSG"
-  echo "endmsg: $LT_STOP_MSG"
+  LT_DURATION=$((LT_STOP - LT_START))
+  $(logtime-add "$LT_STOP.$LT_DURATION $@")
 }
 
-logtime-continue() {
-  echo "Todo: figure out pausing."
-#  LT_START=$(date +%s)
-#  LT_START=$(($LT_START - $SECONDS))
-#  SECONDS=$((LT_END - LT_START))
-#  echo "Start continuing: $SECONDS $@"
+logtime-add(){
+  IFS=$'\n'  
+  LT_ARRAY+=($(logtime-string $@))
+  IFS=$IFS_ORIG
 }
-
-logtime-parse() {
-  while IFS= read -r line; do
-      IFS=.; tokens=($line)
-      local tsHuman=$(date -d@${tokens[0]} 2> /dev/null) 
-      if [ ! -z "$tsHuman" ]
-      then
-        printf '%s\n' "$tsHuman"
-        printf '%s\n\n' ${tokens[1]} 
-      fi
-      IFS=$' \t\n'
-  done < "$TIMELOG" 
-}
-
 
 logtime-string() {
-  local ts=$(date +%s)
-  echo "$ts.\""$@"\""
+  echo "$1.\""${@:2}"\""
 }
 
-logtime-logmsg(){
-  local ts=$(date +%s)
-  echo "$ts $@" >> $TIMELOG
+logtime-commit() {
+  if [ -z "$LT_STOP" ]; then
+    echo "Not stopped before commit."
+    return 1
+  fi 
+  IFS=$'\n'  
+  local commitMsg=$(logtime-string $(date +%s) $@)
+  IFS=$IFS_ORIG
+
+  echo "start.$LT_START_MSG"
+  printf 'mark.%s\n' "${LT_ARRAY[@]}"
+  echo "stop.$LT_STOP.$LT_DURATION.\"$LT_STOP_MSG\""
+  echo "commit.$commitMsg"
 }
+
 
 logtime-ts-human() {
   TS=$(date +%s --date="$1")
@@ -93,31 +96,33 @@ logtime-status(){
      LT_ELAPSED=$(($LT_STOP - $LT_START))
   fi
  
-  echo "TS: $TS"
   echo "LT_START: $LT_START"
   echo "LT_STOP: $LT_STOP"
+  echo "LT_MARK: $LT_MARK"
+  echo "LT_LASTMARK: $LT_LASTMARK"
+  echo "LT_MARK_DURATION: $LT_MARK_DURATION"
   echo "LT_PROJECT: $LT_PROJECT"
-  hms=$(logtime-duration $LT_ELAPSED)
-  echo "LT_ELAPSED: $LT_ELAPSED ($hms)"
+  local hms=$(logtime-hms $LT_DURATION)
+  echo "LT_DURATION: $LT_DURATION ($hms)"
   echo "LT_START_MSG: $LT_START_MSG"
   echo "LT_STOP_MSG: $LT_STOP_MSG"
   echo "TIMELOG: $TIMELOG"
   echo "LT_ARRAY:"
-  printf "%s\n" "${LT_ARRAY[@]}"
-
+  IFS_ORIG=$IFS
+  IFS=$'\n' # remove spaces
+  IFS="" 
+  for line in ${LT_ARRAY[@]}; do
+    printf "mark.%s\n" $line 
+  done; 
+  IFS=$IFS_ORIG
+  echo ""
 }
 
-logtime-duration(){
-  H=$(($1 / 3600));
-  M=$((($1 % 3600) / 60));
-  S=$(($1 % 60));
-  echo "${H}h${M}m${S}s";
-}
-
-logtime-hms() {
-  TS=$(date +%s)
-  logtime-stop
-  echo "$TS $hms $LT_PROJECT $LT_START_MSG $LT_STOP_MSG $@" >> $TIMELOG
+logtime-hms(){
+  local h=$(($1 / 3600));
+  local m=$((($1 % 3600) / 60));
+  local s=$(($1 % 60));
+  echo "${h}h${m}m${s}s";
 }
 
 logtime-hms-to-seconds(){
@@ -127,14 +132,18 @@ logtime-hms-to-seconds(){
 }
 
 # Porcelain
-alias lt="logtime-logmsg $@"
-alias ltstart="logtime-start $@"
-alias ltstop="logtime-stop $@"
-alias ltstatus="logtime-status"
-alias lth="logtime-hms $@"
-alias ltd="logtime-ts-human $@"
-alias ltp="logtime-project $@"
 alias ltls="cat $TIMELOG"
-alias ltcat="cat $TIMELOG"
-alias ltlog="cat $TIMELOG"
-alias ltclear="logtime-clear"
+
+# Development
+logtime-dev-parse() {
+  while IFS= read -r line; do
+      IFS=.; tokens=($line)
+      local tsHuman=$(date -d@${tokens[0]} 2> /dev/null) 
+      if [ ! -z "$tsHuman" ]
+      then
+        printf '%s\n' "$tsHuman"
+        printf '%s\n\n' ${tokens[1]} 
+      fi
+      IFS=$' \t\n'
+  done < "$TIMELOG" 
+}
