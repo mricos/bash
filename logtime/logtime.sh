@@ -14,8 +14,28 @@ logtime-clear(){
   LT_MARK_DURATION=0
   LT_LASTMARK=0
   LT_DURATION=0
-  LT_ARRAY=()
+  LT_MARKERS=()
 }
+
+logtime-save(){
+  local statedir="~/.timecard/state"
+  local timestamp=$(date +%s)
+  local endpoint="$statedir/$timestamp"
+  typeset -p LT_START \
+          LT_STOP  \
+          LT_DURATION \
+          LT_ELAPSED \
+          LT_START_MSG \
+          LT_STOP_MSG \
+          LT_MARKERS \
+          > $endpoint
+  echo $endpoint
+}
+
+logtime-restore(){
+    source $1
+}
+
 logtime-start() {
   if [ ! -z $LT_START ]; then
     echo "LT_START not empty. Use logtime-clear to clear."
