@@ -1,4 +1,8 @@
-source logtime.sh
+#!/bin/bash
+source ./logtime.sh
+export TIMELOG="./test.txt"
+export LT_STATE_DIR="./state"
+export LT_DATA_DIR="./data"
 logtime-clear
 logtime-start Unit test 1.
 sleep 1

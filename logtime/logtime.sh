@@ -1,12 +1,13 @@
+#!/bin/bash
 TIMELOG=~/time.txt
+
+LT_STATE_DIR=${LT_STATE_DIR:="~/.timecard/state"}
 
 # date +%s <-- create UNIX epoch time stamp in seconds
 # date --date=@$TS  <-- create datetime string from TS env var
 
 logtime-clear(){
   LT_START=""
-  LT_STOP=0
-  LT_DURATION=0
   LT_ELAPSED=0
   LT_START_MSG=""
   LT_STOP_MSG=""
@@ -14,22 +15,21 @@ logtime-clear(){
   LT_MARK_DURATION=0
   LT_LASTMARK=0
   LT_DURATION=0
-  LT_MARKERS=()
+  LT_PREVIOUS=""
+  LT_ARRAY=()
 }
 
-logtime-save(){
-  local statedir="~/.timecard/state"
-  local timestamp=$(date +%s)
-  local endpoint="$statedir/$timestamp"
-  typeset -p LT_START \
-          LT_STOP  \
-          LT_DURATION \
-          LT_ELAPSED \
-          LT_START_MSG \
-          LT_STOP_MSG \
-          LT_MARKERS \
-          > $endpoint
-  echo $endpoint
+logtime-getstate(){
+  printf '%s ' $(typeset -p ${!LT_@})
+}
+
+logtime-commit(){
+  if [ -z $LT_START ]; then
+    echo "LT_START is empty. Use logtime-start [offset] [message]."
+  else
+    logtime-getstate >> $LT_STATE_DIR/$LT_START
+    logtime-clear
+  fi
 }
 
 logtime-restore(){
@@ -45,7 +45,7 @@ logtime-start() {
     LT_DURATION=0
     LT_ELAPSED=0
     LT_START_MSG=$@
-    echo "Start timer: $LT_START $@"
+    echo "$LT_START $LT_START_MSG"
   fi
 }
 
@@ -114,7 +114,7 @@ logtime-status(){
   echo ""
 }
 
-logtime-commit() {
+logtime-commit-old() {
   LT_STOP=$(date +%s)
   local str=$@
   if [ -n "$str" ]; then
