@@ -1,7 +1,7 @@
 #!/bin/bash
 TIMELOG=~/time.txt
 
-LT_STATE_DIR=${LT_STATE_DIR:="~/.timecard/state"}
+LT_STATE_DIR=${LT_STATE_DIR:="/home/mricos/.timecard/state"}
 
 # date +%s <-- create UNIX epoch time stamp in seconds
 # date --date=@$TS  <-- create datetime string from TS env var
@@ -19,16 +19,14 @@ logtime-clear(){
   LT_ARRAY=()
 }
 
-logtime-getstate(){
-  printf '%s ' $(typeset -p ${!LT_@})
-}
-
 logtime-commit(){
   if [ -z $LT_START ]; then
     echo "LT_START is empty. Use logtime-start [offset] [message]."
   else
-    logtime-getstate >> $LT_STATE_DIR/$LT_START
-    logtime-clear
+    outfile="$LT_STATE_DIR/$LT_START"
+    declare -p ${!LT_@} > "$outfile"
+    #logtime-getstate > "$outfile" 
+    #logtime-clear
   fi
 }
 
