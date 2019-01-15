@@ -23,11 +23,12 @@ logtime-commit(){
     local datestr=$(date --date=@$LT_START)
     local outfile="$LT_COMMIT_DIR/$LT_START"
     declare -p ${!LT_@} > "$outfile"
-    echo "$datesr $LT_START_MSG "
+    #echo "$datestr $LT_START_MSG "
     echo "$LT_START" 
    
-    IFS=;printf '%s\n' ${LT_ARRAY[@]} ; IFS=$' \t\n'
-    printf '%s total time:$@\n' $LT_MARK_TOTAL 
+    IFS=''; printf '%s\n' ${LT_ARRAY[@]} ;
+    IFS="" 
+    printf "%s <-total time: %s \n" $LT_MARK_TOTAL "$@"
   fi
 }
 
@@ -189,9 +190,9 @@ logtime-dev-parse2() {
         tsHuman=$(logtime-hms ${tokens[0]} 2> /dev/null) 
       fi
 
+      IFS=$' \t\n'
       printf '%s %s \n' "$tsHuman" $line
 
-      IFS=$' \t\n'
   done < "$TIMELOG" 
   IFS=$' \t\n'
 }
