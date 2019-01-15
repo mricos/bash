@@ -12,6 +12,7 @@ logtime-clear(){
   LT_START=""
   LT_START_MSG=""
   LT_MARK_TOTAL=0
+  LT_LASTMARK=0
   LT_ARRAY=()
 }
 
@@ -19,11 +20,14 @@ logtime-commit(){
   if [ -z $LT_START ]; then
     echo "LT_START is empty. Use logtime-start [offset] [message]."
   else
+    local datestr=$(date --date=@$LT_START)
     local outfile="$LT_COMMIT_DIR/$LT_START"
     declare -p ${!LT_@} > "$outfile"
-    echo "$LT_START $LT_START_MSG" 
-    printf '%s\n' ${LT_ARRAY[@]} 
-    printf '%s total time\n' $LT_MARK_TOTAL 
+    echo "$datesr $LT_START_MSG "
+    echo "$LT_START" 
+   
+    IFS=;printf '%s\n' ${LT_ARRAY[@]} ; IFS=$' \t\n'
+    printf '%s total time:$@\n' $LT_MARK_TOTAL 
   fi
 }
 
@@ -53,6 +57,7 @@ logtime-start() {
     fi
 
     LT_START=$(date +%s -d $when)
+    LT_LASTMARK=$LT_START
     LT_START_MSG="$msg"
   fi
 }
@@ -68,17 +73,19 @@ logtime-start() {
 logtime-mark() {
   local curtime=$(date +%s)
   local dur=0
-  if [ "$1" -eq "$1" ] 2>/dev/null  # check to see if its a number
+  dur=$(logtime-hms-to-seconds  $1)
+ 
+  if [ "$dur" -eq 0 ] 2>/dev/null  # 0 if not an hms string
   then
-    dur=$1
-    msg="${@:2}"
-  else
-    dur=$(( $curtime - $LT_START - LT_MARK_TOTAL ))
+    dur=$(( $curtime - $LT_LASTMARK ))
     msg="$@"
+  else
+    msg="${@:2}"
   fi
 
+  LT_LASTMARK=$curtime
+
   IFS_ORIG=$IFS
-  #dur=$(logtime-hms $dur) 
   (( LT_MARK_TOTAL += dur ))
   IFS=$'\n'  
   LT_ARRAY+=("$dur $msg")
@@ -123,11 +130,14 @@ logtime-status(){
   local ts=$(date +%s)
   local elapsed=$((ts - LT_START))
   local elapsedHms=$(logtime-hms $elapsed)
+  local datestr=$(date --date="@$LT_START")
+  printf '%s\n' "$datestr"
   echo "LT_START: $LT_START ($elapsedHms)"
   echo "LT_START_MSG: $LT_START_MSG"
   echo "TIMELOG: $TIMELOG"
   echo "LT_ARRAY:"
   IFS_ORIG=$IFS
+  IFS=$'\n'
   for line in ${LT_ARRAY[@]}; do
      IFS=' ' read left right <<< "$line"
      deltatime=$(logtime-hms $left)
@@ -164,6 +174,23 @@ logtime-dev-parse() {
         printf '%s\n' "$tsHuman"
         printf '%s\n\n' ${tokens[1]} 
       fi
+      IFS=$' \t\n'
+  done < "$TIMELOG" 
+  IFS=$' \t\n'
+}
+logtime-dev-parse2() {
+  local tsHuman=""
+  IFSOLD=$IFS
+  while IFS= read -r line; do  #get the whole line, no IFS
+      IFS=' '; tokens=($line)    # now IFS is space 
+      if [[ $tokens[0] > 600000 ]]; then
+        tsHuman=$(date -d@${tokens[0]} 2> /dev/null) 
+      else
+        tsHuman=$(logtime-hms ${tokens[0]} 2> /dev/null) 
+      fi
+
+      printf '%s %s \n' "$tsHuman" $line
+
       IFS=$' \t\n'
   done < "$TIMELOG" 
   IFS=$' \t\n'
