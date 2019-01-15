@@ -1,21 +1,16 @@
 #!/bin/bash
 TIMELOG=~/time.txt
 
-LT_STATE_DIR=${LT_STATE_DIR:="/home/mricos/.timecard/state"}
+#LT_STATE_DIR=${LT_STATE_DIR:="/home/mricos/.timecard/commits"}
+LT_STATE_DIR=${LT_STATE_DIR:="./state"}
+LT_COMMIT_DIR=${LT_COMMIT_DIR:="./commit"}
 
 # date +%s <-- create UNIX epoch time stamp in seconds
 # date --date=@$TS  <-- create datetime string from TS env var
 
 logtime-clear(){
   LT_START=""
-  LT_ELAPSED=0
   LT_START_MSG=""
-  LT_STOP_MSG=""
-  LT_MARK=0
-  LT_MARK_DURATION=0
-  LT_LASTMARK=0
-  LT_DURATION=0
-  LT_PREVIOUS=""
   LT_ARRAY=()
 }
 
@@ -23,10 +18,9 @@ logtime-commit(){
   if [ -z $LT_START ]; then
     echo "LT_START is empty. Use logtime-start [offset] [message]."
   else
-    outfile="$LT_STATE_DIR/$LT_START"
+    local outfile="$LT_COMMIT_DIR/$LT_START"
     declare -p ${!LT_@} > "$outfile"
-    #logtime-getstate > "$outfile" 
-    #logtime-clear
+    logtime-status >> $TIMELOG
   fi
 }
 
@@ -34,26 +28,46 @@ logtime-restore(){
     source $1
 }
 
+logtime-is-date(){
+  date -d "$1" 2>: 1>:; echo $? # returns 0 if true, 1 if error
+}
+
+logtime-str2time(){
+  date +%s -d "$1"
+}
+
 logtime-start() {
   if [ ! -z $LT_START ]; then
     echo "LT_START not empty. Use logtime-clear to clear."
+    return -1
   else
-    LT_START=$(date +%s)
-    LT_MARK=$LT_START
-    LT_DURATION=0
-    LT_ELAPSED=0
-    LT_START_MSG=$@
+    if date -d "$1" 2>: 1>:; then  # test, send stdio to /dev/null
+      local when=$1;
+      local msg=${@:2};
+    else
+      local when="now";
+      local msg=${@:1};
+    fi
+
+    LT_START=$(date +%s -d $when)
+    LT_START_MSG=$msg
     echo "$LT_START $LT_START_MSG"
+    return 0 
+    IFS_ORIG=$IFS
+    IFS=$'\n'  
+    LT_ARRAY=($(logtime-string $LT_START  0  $@))
+    IFS=$IFS_ORIG
   fi
 }
 
 logtime-mark() {
-  LT_LASTMARK=$LT_MARK
-  LT_MARK=$(date +%s)
-  LT_MARK_DURATION=$((LT_MARK - LT_LASTMARK))
   IFS_ORIG=$IFS
+  local timemark=$(date +%s)
+  IFS=. read left right <<< ${LT_ARRAY[-1]}
+  local lastmark=$left
+  local dur=$((timemark - lastmark ))
   IFS=$'\n'  
-  LT_ARRAY+=($(logtime-string $LT_MARK.$LT_MARK_DURATION $@))
+  LT_ARRAY+=($(logtime-string $timemark  $dur $@))
   IFS=$IFS_ORIG
 }
 
@@ -63,7 +77,7 @@ logtime-stop() {
 }
 
 logtime-string() {
-  echo "$1.\""${@:2}"\""
+  echo "$1.$2.\""${@:3}"\""
 }
 
 logtime-hms(){
@@ -89,24 +103,21 @@ logtime-status(){
     return 1
   fi
 
-  TS=$(date +%s)
-  LT_ELAPSED=$((TS - LT_START))
-  local elapsedHms=$(logtime-hms $LT_ELAPSED)
-  echo "LT_START: $LT_START"
-  echo "LT_STOP: $LT_STOP"
-  echo "LT_DURATION: $LT_DURATION ( $(logtime-hms $LT_DURATION) )"
-  echo "LT_ELAPSED: $LT_ELAPSED ( $elapsedHms )"
-  echo "LT_MARK: $LT_MARK"
-  echo "LT_LASTMARK: $LT_LASTMARK"
-  echo "LT_MARK_DURATION: $LT_MARK_DURATION"
+  local ts=$(date +%s)
+  local elapsed=$((ts - LT_START))
+  local elapsedHms=$(logtime-hms $elapsed)
+  echo "LT_START: $LT_START ($elapsedHms)"
   echo "LT_START_MSG: $LT_START_MSG"
-  echo "LT_STOP_MSG: $LT_STOP_MSG"
   echo "TIMELOG: $TIMELOG"
   echo "LT_ARRAY:"
+  printf '%s \n' ${LT_ARRAY[@]}
   IFS_ORIG=$IFS
   IFS="" 
   for line in ${LT_ARRAY[@]}; do
-    printf "mark.%s\n" $line 
+     IFS=. read left right <<< "$line"
+     deltatime=$(( left - $LT_START ))
+     deltatime=$(logtime-hms $deltatime)
+    printf "%s %s (%s)\n" $left $right $deltatime
   done; 
   IFS=$IFS_ORIG
   echo ""
@@ -131,8 +142,8 @@ alias ltls="cat $TIMELOG"
 
 # Development
 logtime-dev-parse() {
-  while IFS= read -r line; do
-      IFS=.; tokens=($line)
+  while IFS= read -r line; do  #get the whole line, no IFS
+      IFS=.; tokens=($line)    # now IFS is .
       local tsHuman=$(date -d@${tokens[0]} 2> /dev/null) 
       if [ ! -z "$tsHuman" ]
       then
@@ -141,4 +152,5 @@ logtime-dev-parse() {
       fi
       IFS=$' \t\n'
   done < "$TIMELOG" 
+  IFS=$' \t\n'
 }
