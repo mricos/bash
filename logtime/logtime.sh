@@ -11,6 +11,7 @@ LT_COMMIT_DIR=${LT_COMMIT_DIR:="./commit"}
 logtime-clear(){
   LT_START=""
   LT_START_MSG=""
+  LT_MARK_TOTAL=0
   LT_ARRAY=()
 }
 
@@ -20,7 +21,9 @@ logtime-commit(){
   else
     local outfile="$LT_COMMIT_DIR/$LT_START"
     declare -p ${!LT_@} > "$outfile"
-    logtime-status >> $TIMELOG
+    echo "$LT_START $LT_START_MSG" 
+    printf '%s\n' ${LT_ARRAY[@]} 
+    printf '%s total time\n' $LT_MARK_TOTAL 
   fi
 }
 
@@ -43,31 +46,42 @@ logtime-start() {
   else
     if date -d "$1" 2>: 1>:; then  # test, send stdio to /dev/null
       local when=$1;
-      local msg=${@:2};
+      local msg="${@:2}";
     else
       local when="now";
-      local msg=${@:1};
+      local msg="${@:1}"
     fi
 
     LT_START=$(date +%s -d $when)
-    LT_START_MSG=$msg
-    echo "$LT_START $LT_START_MSG"
-    return 0 
-    IFS_ORIG=$IFS
-    IFS=$'\n'  
-    LT_ARRAY=($(logtime-string $LT_START  0  $@))
-    IFS=$IFS_ORIG
+    LT_START_MSG="$msg"
   fi
 }
 
+# Marks define a length of time
+# if no length is given in hms, then:
+# markdur = curtime-LT_START-markdur_total
+# 123423313123 Starting to do something
+# 363 This is the first mark for 0h6m3s
+# 3600 This is second mark string   for 1h
+# 1800 This thrid task lasted 0h30m0s
+# 9003 marktime_total 
 logtime-mark() {
+  local curtime=$(date +%s)
+  local dur=0
+  if [ "$1" -eq "$1" ] 2>/dev/null  # check to see if its a number
+  then
+    dur=$1
+    msg="${@:2}"
+  else
+    dur=$(( $curtime - $LT_START - LT_MARK_TOTAL ))
+    msg="$@"
+  fi
+
   IFS_ORIG=$IFS
-  local timemark=$(date +%s)
-  IFS=. read left right <<< ${LT_ARRAY[-1]}
-  local lastmark=$left
-  local dur=$((timemark - lastmark ))
+  #dur=$(logtime-hms $dur) 
+  (( LT_MARK_TOTAL += dur ))
   IFS=$'\n'  
-  LT_ARRAY+=($(logtime-string $timemark  $dur $@))
+  LT_ARRAY+=("$dur $msg")
   IFS=$IFS_ORIG
 }
 
@@ -77,6 +91,9 @@ logtime-stop() {
 }
 
 logtime-string() {
+  echo "\""${@:3}"\""
+}
+logtime-string-old() {
   echo "$1.$2.\""${@:3}"\""
 }
 
@@ -110,14 +127,11 @@ logtime-status(){
   echo "LT_START_MSG: $LT_START_MSG"
   echo "TIMELOG: $TIMELOG"
   echo "LT_ARRAY:"
-  printf '%s \n' ${LT_ARRAY[@]}
   IFS_ORIG=$IFS
-  IFS="" 
   for line in ${LT_ARRAY[@]}; do
-     IFS=. read left right <<< "$line"
-     deltatime=$(( left - $LT_START ))
-     deltatime=$(logtime-hms $deltatime)
-    printf "%s %s (%s)\n" $left $right $deltatime
+     IFS=' ' read left right <<< "$line"
+     deltatime=$(logtime-hms $left)
+     printf "%s %s (%s)\n" $left $right $deltatime
   done; 
   IFS=$IFS_ORIG
   echo ""
