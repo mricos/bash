@@ -1,4 +1,4 @@
-#!/bin/bash
+#bin/bash
 source ./config.sh
 TIMELOG=./time.txt
 LT_STATE_DIR=${LT_STATE_DIR:=".logtime/state"}
@@ -50,6 +50,7 @@ logtime-save(){
     local outfile="$LT_STATE_DIR/$LT_START"
     export ${!LT_@}
     declare -p  ${!LT_@}  > "$outfile"
+    printf '%s\n' "Wrote to $outfile"
   fi
 }
 
@@ -59,7 +60,13 @@ logtime-recall(){
     echo "State file not found. Select from:"
     ls $LT_STATE_DIR
   else
+    echo "Loading from $infile"
+    cat $infile
+    echo "Sourcing $infile"
     source "$infile"
+    echo $LT_START
+    export ${!LT_@}
+    export LT_START
   fi
 }
 
@@ -239,7 +246,7 @@ logtime-marks(){
 logtime-mark-change() {
   printf 'Changing %s (ctrl+c to cancel)\n' "${LT_ARRAY[$1]}"
   read line 
-  printf 'To: %s' $line
+  $LT_ARRAY[$1]=$line 
 }
 # Porcelain
 alias ltls="cat $TIMELOG"
