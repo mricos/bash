@@ -1,19 +1,9 @@
 #!/bin/bash
-
+source ./config.sh
 TIMELOG=./time.txt
 LT_STATE_DIR=${LT_STATE_DIR:=".logtime/state"}
 LT_COMMIT_DIR=${LT_COMMIT_DIR:=".logtime/commit"}
 LT_DATA_DIR=${LT_DATA_DIR:=".logtime/data"}
-logload(){
-  source $LT_STATE_DIR/1546326000
-  echo $LT_START
-  LT_START=$LT_START
-  #LT_START="2222"
-}
-
-lll(){
-  LT_START="55"
-}
 
 # Logtime uses Unix date command to create Unix timestamps.
 # Start with an intention:
@@ -59,7 +49,7 @@ logtime-save(){
   else
     local outfile="$LT_STATE_DIR/$LT_START"
     export ${!LT_@}
-    declare -p  ${!LT_@} # > "$outfile"
+    declare -p  ${!LT_@}  > "$outfile"
   fi
 }
 
@@ -81,9 +71,23 @@ logtime-commit(){
     local datestr=$(date --date=@$LT_START)
     local outfile="$LT_COMMIT_DIR/$LT_START"
     echo "$LT_START $LT_START_MSG ($datestr)"
-    IFS=$'\n'; printf '%s\n' ${LT_ARRAY[@]} ;
+    #IFS=$'\n'; printf '%s\n' ${LT_ARRAY[@]} ;
+    logtime-marks
     IFS=$IFSOLD
   fi
+}
+
+logtime-commit2(){
+  if [ -z $LT_START ]; then
+    echo "LT_START is empty. Use logtime-start [offset] [message]."
+  else
+    #local datestr=$(date +%D --date=@$LT_START)
+    local datestr=$(date  --date=@$LT_START)
+    printf '%s\n%s\n'  "$datestr"  "$LT_START_MSG"
+    logtime-marks2
+    printf '\n' 
+  fi
+
 }
 
 logtime-restore(){
@@ -193,18 +197,50 @@ logtime-status(){
   echo "LT_START_MSG=$LT_START_MSG"
   echo "TIMELOG=$TIMELOG"
   echo "LT_ARRAY:"
+  logtime-marks
+}
+
+logtime-start-set(){
+    if date -d "$1" 2>: 1>:; then  # test, send stdio to /dev/null
+      local when=$1;
+    else
+      local when="now";
+    fi
+    LT_START=$(date +%s -d $when)
+    LT_LASTMARK=$LT_START
+}
+logtime-increment(){
+  local offset=$(logtime-hms-to-seconds $1)
+  LT_START=$(($LT_START + $offset))
+}
+
+logtime-marks2(){
   IFS_ORIG=$IFS
   IFS=$'\n'
   for line in ${LT_ARRAY[@]}; do
      IFS=' ' read left right <<< "$line"
      deltatime=$(logtime-hms $left)
-     printf "%s %s (%s)\n" $left $right $deltatime
+     printf '%s (%s)\n' $right $deltatime
   done; 
   IFS=$IFS_ORIG
-  echo ""
 }
 
+logtime-marks(){
+  IFS_ORIG=$IFS
+  IFS=$'\n'
+  for line in ${LT_ARRAY[@]}; do
+     IFS=' ' read left right <<< "$line"
+     deltatime=$(logtime-hms $left)
+     printf "%s %s for %s\n" $left $right $deltatime
+  done; 
+  IFS=$IFS_ORIG
+}
 
+logtime-mark-change() {
+  printf 'Changing %s (ctrl+c to cancel)\n' "${LT_ARRAY[$1]}"
+  read line 
+  printf 'To: %s' $line
+}
 # Porcelain
 alias ltls="cat $TIMELOG"
 
