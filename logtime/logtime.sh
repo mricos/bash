@@ -1,13 +1,50 @@
 #!/bin/bash
-TIMELOG=~/time.txt
 
-#LT_STATE_DIR=${LT_STATE_DIR:="/home/mricos/.timecard/commits"}
-LT_STATE_DIR=${LT_STATE_DIR:="./state"}
-LT_COMMIT_DIR=${LT_COMMIT_DIR:="./commit"}
+TIMELOG=./time.txt
+LT_STATE_DIR=${LT_STATE_DIR:=".logtime/state"}
+LT_COMMIT_DIR=${LT_COMMIT_DIR:=".logtime/commit"}
+LT_DATA_DIR=${LT_DATA_DIR:=".logtime/data"}
+logload(){
+  source $LT_STATE_DIR/1546326000
+  echo $LT_START
+  LT_START=$LT_START
+  #LT_START="2222"
+}
 
-# date +%s <-- create UNIX epoch time stamp in seconds
-# date --date=@$TS  <-- create datetime string from TS env var
+lll(){
+  LT_START="55"
+}
 
+# Logtime uses Unix date command to create Unix timestamps.
+# Start with an intention:
+#   logtime-start working on invoices for logtime
+#
+# This starts a timer. Mark time by stating what you have 
+# done while the timer is running:
+#
+#   logtime-mark editing logfile.sh
+#   logtime-mark added first draft of instructions
+#
+# Get the status by:
+#
+#   logtime-status
+#
+# Save state along the way:
+#
+#   logtime-save
+#
+# Restore state:
+#
+#   logtime-load <timestamp> # no argument will list all possible
+# 
+# Commit the list of duration marks:
+#
+#   logtime-commit  # writes to $LT_TIMELOG
+#
+# View time:
+#
+#   cat $LT_TIMELOG
+#
 logtime-clear(){
   LT_START=""
   LT_START_MSG=""
@@ -16,19 +53,36 @@ logtime-clear(){
   LT_ARRAY=()
 }
 
+logtime-save(){
+  if [ -z $LT_START ]; then
+    echo "LT_START is empty. Use logtime-start [offset] [message]."
+  else
+    local outfile="$LT_STATE_DIR/$LT_START"
+    export ${!LT_@}
+    declare -p  ${!LT_@} # > "$outfile"
+  fi
+}
+
+logtime-recall(){
+  local infile="$LT_STATE_DIR/$1"
+  if [ ! -f $infile ]; then
+    echo "State file not found. Select from:"
+    ls $LT_STATE_DIR
+  else
+    source "$infile"
+  fi
+}
+
 logtime-commit(){
+  IFSOLD=$IFS
   if [ -z $LT_START ]; then
     echo "LT_START is empty. Use logtime-start [offset] [message]."
   else
     local datestr=$(date --date=@$LT_START)
     local outfile="$LT_COMMIT_DIR/$LT_START"
-    declare -p ${!LT_@} > "$outfile"
-    #echo "$datestr $LT_START_MSG "
-    echo "$LT_START" 
-   
-    IFS=''; printf '%s\n' ${LT_ARRAY[@]} ;
-    IFS="" 
-    printf "%s <-total time: %s \n" $LT_MARK_TOTAL "$@"
+    echo "$LT_START $LT_START_MSG ($datestr)"
+    IFS=$'\n'; printf '%s\n' ${LT_ARRAY[@]} ;
+    IFS=$IFSOLD
   fi
 }
 
@@ -57,6 +111,8 @@ logtime-start() {
       local msg="${@:1}"
     fi
 
+    # date +%s <-- create UNIX epoch time stamp in seconds
+    # date --date=@$TS  <-- create datetime string from TS env var
     LT_START=$(date +%s -d $when)
     LT_LASTMARK=$LT_START
     LT_START_MSG="$msg"
@@ -132,10 +188,10 @@ logtime-status(){
   local elapsed=$((ts - LT_START))
   local elapsedHms=$(logtime-hms $elapsed)
   local datestr=$(date --date="@$LT_START")
-  printf '%s\n' "$datestr"
-  echo "LT_START: $LT_START ($elapsedHms)"
-  echo "LT_START_MSG: $LT_START_MSG"
-  echo "TIMELOG: $TIMELOG"
+  printf '\n'
+  echo "LT_START=$LT_START # ($datestr)"
+  echo "LT_START_MSG=$LT_START_MSG"
+  echo "TIMELOG=$TIMELOG"
   echo "LT_ARRAY:"
   IFS_ORIG=$IFS
   IFS=$'\n'
@@ -148,19 +204,6 @@ logtime-status(){
   echo ""
 }
 
-logtime-commit-old() {
-  LT_STOP=$(date +%s)
-  local str=$@
-  if [ -n "$str" ]; then
-     LT_STOP_MSG=$str
-  fi
-
-  echo "start.$LT_START.\"$LT_START_MSG\""
-  if [ -n "$LT_ARRAY" ]; then
-    printf "mark.%s\n" "${LT_ARRAY[@]}"
-  fi
-  echo "stop.$LT_STOP.\"$LT_STOP_MSG\".$LT_DURATION"
-}
 
 # Porcelain
 alias ltls="cat $TIMELOG"
