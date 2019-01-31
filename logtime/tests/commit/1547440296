@@ -1,0 +1,10 @@
+declare -a LT_ARRAY='([0]="1547440297.\"Adding a time marker\"" [1]="1547440297.\"Adding a a second time marker\"")'
+declare -- LT_COMMITS_DIR="./commit"
+declare -- LT_COMMIT_DIR="./commit"
+declare -- LT_DATA_DIR="./data"
+declare -- LT_DURATION="1"
+declare -- LT_PREVIOUS=""
+declare -- LT_START="1547440296"
+declare -- LT_START_MSG="Unit test 1."
+declare -- LT_STATE_DIR="./state"
+declare -- LT_STOP="1547440297"
