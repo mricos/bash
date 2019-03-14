@@ -1,9 +1,30 @@
 #bin/bash
 TIMELOG=./time.txt
+source ~/bash/logtime/config.sh
 LT_STATE_DIR=${LT_STATE_DIR:=".logtime/state"}
 LT_COMMIT_DIR=${LT_COMMIT_DIR:=".logtime/commit"}
 LT_DATA_DIR=${LT_DATA_DIR:=".logtime/data"}
 
+logtime-stamp-to-tokens(){
+  for f in $1
+  do
+    echo "Processing $f file..."
+    # take action on each file. $f store current file name
+    #cat $f
+    local basename=$(basename $f)
+    bar=(`echo $basename | tr '.' ' '`)
+    local day=$(date +"%D %a" -d@${bar[0]})
+    echo $basename
+    printf '%s %s\n'  "$r"  "$LT_START_MSG"
+  done
+}
+
+stamp() {
+  local dest="$LT_DATA_DIR/$(date +%s).$1"
+  echo "Writing to  $dest"
+  echo "Paste then ctrl-d on newline to end."
+  cat >> $dest
+}
 # Logtime uses Unix date command to create Unix timestamps.
 # Start with an intention:
 #   logtime-start working on invoices for logtime
@@ -40,6 +61,10 @@ logtime-clear(){
   LT_MARK_TOTAL=0
   LT_LASTMARK=0
   LT_ARRAY=()
+}
+
+logtime-info(){
+    declare -p  ${!LT_@} 
 }
 
 logtime-save(){

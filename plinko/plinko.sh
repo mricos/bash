@@ -1,7 +1,6 @@
-s(){ source $BASH_SOURCE;}
-v(){ vi $BASH_SOURCE;}
-source ../utils/utils.sh
+#source ../utils/utils.sh
 source plinko-server.sh
+source ./plinko.cfg
 
 plinko-help()
 {
@@ -24,7 +23,7 @@ plinko-css(){
   width:80%;
 }
 .plinko-node{
-  border: 3px solid #888;
+  border: 1px solid #888;
   display:block;
   box-sizing:border-box;
   line-height:1em;
@@ -52,12 +51,10 @@ plinko-node() {
   h="10%"
 
   #derived
-  x=$( bc <<< "$NODEWIDTH * $n + $k")px  
-  y=$( bc <<< "$NODEWIDTH * $m + $k")px  
   x=$( bc <<< "$NODEWIDTH * $n + $k")%
   y=$( bc <<< "$NODEWIDTH * $m + $k")%
   echo "<div 
-    id="$m,$n,$k"
+    id="$m-$n-$k"
     class=\"plinko-node\" 
     onclick=\"plinkoClick(this)\"
     style=\"
