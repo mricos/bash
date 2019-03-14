@@ -1,5 +1,4 @@
 #bin/bash
-source ./config.sh
 TIMELOG=./time.txt
 LT_STATE_DIR=${LT_STATE_DIR:=".logtime/state"}
 LT_COMMIT_DIR=${LT_COMMIT_DIR:=".logtime/commit"}
@@ -102,7 +101,7 @@ logtime-restore(){
 }
 
 logtime-is-date(){
-  date -d "$1" 2>: 1>:; echo $? # returns 0 if true, 1 if error
+  date -d "$1" &>/dev/null; echo $? # returns 0 if true, 1 if error
 }
 
 logtime-str2time(){
@@ -114,7 +113,7 @@ logtime-start() {
     echo "LT_START not empty. Use logtime-clear to clear."
     return -1
   else
-    if date -d "$1" 2>: 1>:; then  # test, send stdio to /dev/null
+    if date -d "$1" &>/dev/null; then  # test, send stdio to /dev/null
       local when=$1;
       local msg="${@:2}";
     else
@@ -128,6 +127,9 @@ logtime-start() {
     LT_LASTMARK=$LT_START
     LT_START_MSG="$msg"
   fi
+
+    echo "$LT_START: $LT_START_MSG"
+    echo "Now type logtime-mark <+/- offeset> notes about this time mark"
 }
 
 # Marks define a length of time
@@ -200,7 +202,7 @@ logtime-status(){
   local elapsedHms=$(logtime-hms $elapsed)
   local datestr=$(date --date="@$LT_START")
   printf '\n'
-  echo "LT_START=$LT_START # ($datestr)"
+  echo "LT_START=$LT_START # ($datestr, elapsed:$elapsedHms)"
   echo "LT_START_MSG=$LT_START_MSG"
   echo "TIMELOG=$TIMELOG"
   echo "LT_ARRAY:"
