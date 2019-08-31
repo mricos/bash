@@ -1,6 +1,5 @@
 #bin/bash
-LT_DIR=~/src/bash/logtime
-LT_TIMELOG=$LT_DIR/time.txt
+LT_DIR=~/src/mricos/bash/logtime
 LT_STATE_DIR=$LT_DIR/state
 LT_COMMIT_DIR=$LT_DIR/commit
 LT_DATA_DIR=$LT_DIR/data
@@ -19,42 +18,15 @@ logtime-stamp-to-tokens(){
   done
 }
 
-stamp() {
+alias stamp='logtime-data-stamp'
+logtime-data-stamp() {
   local dest="$LT_DATA_DIR/$(date +%s).$1"
   echo "Writing to  $dest"
   echo "Paste then ctrl-d on newline to end."
   cat >> $dest
 }
-# Logtime uses Unix date command to create Unix timestamps.
-# Start with an intention:
-#   logtime-start working on invoices for logtime
-#
-# This starts a timer. Mark time by stating what you have 
-# done while the timer is running:
-#
-#   logtime-mark editing logfile.sh
-#   logtime-mark added first draft of instructions
-#
-# Get the status by:
-#
-#   logtime-status
-#
-# Save state along the way:
-#
-#   logtime-save
-#
-# Restore state:
-#
-#   logtime-load <timestamp> # no argument will list all possible
-# 
-# Commit the list of duration marks:
-#
-#   logtime-commit  # writes to $LT_TIMELOG
-#
-# View time:
-#
-#   cat $LT_TIMELOG
-#
+
+
 logtime-clear(){
   LT_START=""
   LT_START_MSG=""
@@ -71,14 +43,17 @@ logtime-save(){
   if [ -z $LT_START ]; then
     echo "LT_START is empty. Use logtime-start [offset] [message]."
   else
-    local outfile="$LT_STATE_DIR/$LT_START"
+    local msg="$LT_START_MSG"
+    local outfile="$LT_STATE_DIR/$LT_START.$msg"
     export ${!LT_@}
     declare -p  ${!LT_@}  > "$outfile"
-    printf '%s\n' "Wrote to $outfile"
+    if [ $? -eq 0 ]; then
+      printf '%s\n' "Wrote to $outfile"
+    fi
   fi
 }
 
-logtime-recall(){
+logtime-restore(){
   local infile="$LT_STATE_DIR/$1"
   if [ ! -f $infile ]; then
     echo "State file not found. Select from:"
@@ -106,10 +81,6 @@ logtime-commit(){
     printf '\n' 
   fi
 
-}
-
-logtime-restore(){
-    source $1
 }
 
 logtime-is-date(){
@@ -206,10 +177,8 @@ logtime-status(){
   local elapsed=$((ts - LT_START))
   local elapsedHms=$(logtime-hms $elapsed)
   local datestr=$(date --date="@$LT_START")
-  printf '\n'
   echo "LT_START=$LT_START # ($datestr, elapsed:$elapsedHms)"
   echo "LT_START_MSG=$LT_START_MSG"
-  echo "TIMELOG=$LT_TIMELOG"
   echo "LT_ARRAY:"
   logtime-marks
 }
@@ -246,6 +215,30 @@ logtime-mark-change() {
 }
 # Porcelain
 alias ltls="cat $LT_TIMELOG"
+
+
+logtime-help(){
+helptext='
+Logtime uses Unix date command to create Unix timestamps.
+Start with an intention:
+  logtime-start working on invoices for logtime
+
+This starts a timer. Mark time by stating what you have 
+done while the timer is running:
+
+  logtime-mark editing logfile.sh
+  logtime-mark added first draft of instructions
+
+Get the status by: logtime-status
+
+Save state along the way: logtime-save
+
+Restore state: logtime-load <timestamp> # no argument will list all possible
+
+Commit the list of duration marks: logtime-commit  # writes to $LT_TIMELOG
+'
+  echo "$helptext"
+}
 
 # Development
 logtime-dev-parse() {
