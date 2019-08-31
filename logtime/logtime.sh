@@ -1,4 +1,4 @@
-#bin/bash
+#!/bin/bash
 LT_DIR=~/src/mricos/bash/logtime
 LT_STATE_DIR=$LT_DIR/state
 LT_COMMIT_DIR=$LT_DIR/commit
@@ -44,7 +44,7 @@ logtime-save(){
     echo "LT_START is empty. Use logtime-start [offset] [message]."
   else
     local msg="$LT_START_MSG"
-    local outfile="$LT_STATE_DIR/$LT_START.$msg"
+    local outfile=$LT_STATE_DIR/$LT_START.$msg
     export ${!LT_@}
     declare -p  ${!LT_@}  > "$outfile"
     if [ $? -eq 0 ]; then
@@ -73,14 +73,32 @@ logtime-restore(){
 logtime-commit(){
   if [ -z $LT_START ]; then
     echo "LT_START is empty. Use logtime-start [offset] [message]."
-  else
-    #local datestr=$(date +%D --date=@$LT_START)
-    local datestr=$(date  --date=@$LT_START)
-    printf '%s\n%s\n'  "$datestr"  "$LT_START_MSG"
-    logtime-marks
-    printf '\n' 
-  fi
+    return -1
+  fi 
+  
+  if [ -z $LT_STOP ]; then
+    echo "LT_STOP is empty. Use logtime-stop [offset] [message]."
+    return -1
+  fi 
 
+  if [ -z $1 ] # if there is one or more arguments, treat it as string
+     then
+        local commitmsg=$LT_STOP_MSG
+      else
+        local commitmsg="${@:1}"
+  fi 
+
+  logtime-stop
+  local datestart=$(date --date=@$LT_START)
+  local datestop=$(date --date=@$LT_STOP)
+  local duration=$(logtime-hms $LT_DURATION)
+  printf '%s\n'  "$datestart" 
+  printf '%s\n'  "$datestop" 
+  printf '%s\n' "Start: $LT_START_MSG"
+  printf '%s %s\n' "Duration:"  $duration
+  logtime-marks
+  printf '%s\n' "Stop: $LT_STOP_MSG"
+  printf '%s\n' "Commit: $commitmsg"
 }
 
 logtime-is-date(){
@@ -107,6 +125,7 @@ logtime-start() {
     # date +%s <-- create UNIX epoch time stamp in seconds
     # date --date=@$TS  <-- create datetime string from TS env var
     LT_START=$(date +%s -d $when)
+    LT_STOP=""
     LT_LASTMARK=$LT_START
     LT_START_MSG="$msg"
   fi
@@ -143,11 +162,22 @@ logtime-mark() {
   IFS=$'\n'  
   LT_ARRAY+=("$dur $msg")
   IFS=$IFS_ORIG
+
+  logtime-save
 }
 
+logtime-unstop() {
+  LT_STOP=""
+}
 logtime-stop() {
-  LT_STOP=$(date +%s)
-  LT_DURATION=$((LT_STOP - LT_START))
+  echo "LT_STOP is $LT_STOP"
+  if [ ! -z "$LT_STOP" ]; then
+    return -1 # LT_STOP is not empty, deny user, must unstop first
+  else 
+    LT_STOP=$(date +%s)
+    LT_DURATION=$((LT_STOP - LT_START))
+    LT_STOP_MSG=${@:1}
+  fi
 }
 
 logtime-hms(){
