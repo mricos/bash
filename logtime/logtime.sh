@@ -94,28 +94,15 @@ logtime-recall(){
   fi
 }
 
-logtime-commit(){
-  IFSOLD=$IFS
-  if [ -z $LT_START ]; then
-    echo "LT_START is empty. Use logtime-start [offset] [message]."
-  else
-    local datestr=$(date --date=@$LT_START)
-    local outfile="$LT_COMMIT_DIR/$LT_START"
-    echo "$LT_START $LT_START_MSG ($datestr)"
-    #IFS=$'\n'; printf '%s\n' ${LT_ARRAY[@]} ;
-    logtime-marks
-    IFS=$IFSOLD
-  fi
-}
 
-logtime-commit2(){
+logtime-commit(){
   if [ -z $LT_START ]; then
     echo "LT_START is empty. Use logtime-start [offset] [message]."
   else
     #local datestr=$(date +%D --date=@$LT_START)
     local datestr=$(date  --date=@$LT_START)
     printf '%s\n%s\n'  "$datestr"  "$LT_START_MSG"
-    logtime-marks2
+    logtime-marks
     printf '\n' 
   fi
 
@@ -192,13 +179,6 @@ logtime-stop() {
   LT_DURATION=$((LT_STOP - LT_START))
 }
 
-logtime-string() {
-  echo "\""${@:3}"\""
-}
-logtime-string-old() {
-  echo "$1.$2.\""${@:3}"\""
-}
-
 logtime-hms(){
   local h=$(($1 / 3600));
   local m=$((($1 % 3600) / 60));
@@ -246,17 +226,6 @@ logtime-start-set(){
 logtime-increment(){
   local offset=$(logtime-hms-to-seconds $1)
   LT_START=$(($LT_START + $offset))
-}
-
-logtime-marks2(){
-  IFS_ORIG=$IFS
-  IFS=$'\n'
-  for line in ${LT_ARRAY[@]}; do
-     IFS=' ' read left right <<< "$line"
-     deltatime=$(logtime-hms $left)
-     printf '%s (%s)\n' $right $deltatime
-  done; 
-  IFS=$IFS_ORIG
 }
 
 logtime-marks(){
