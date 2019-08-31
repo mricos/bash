@@ -1,9 +1,9 @@
 #bin/bash
-TIMELOG=./time.txt
-source ~/bash/logtime/config.sh
-LT_STATE_DIR=${LT_STATE_DIR:=".logtime/state"}
-LT_COMMIT_DIR=${LT_COMMIT_DIR:=".logtime/commit"}
-LT_DATA_DIR=${LT_DATA_DIR:=".logtime/data"}
+LT_DIR=~/src/bash/logtime
+LT_TIMELOG=$LT_DIR/time.txt
+LT_STATE_DIR=$LT_DIR/state
+LT_COMMIT_DIR=$LT_DIR/commit
+LT_DATA_DIR=$LT_DIR/data
 
 logtime-stamp-to-tokens(){
   for f in $1
@@ -229,7 +229,7 @@ logtime-status(){
   printf '\n'
   echo "LT_START=$LT_START # ($datestr, elapsed:$elapsedHms)"
   echo "LT_START_MSG=$LT_START_MSG"
-  echo "TIMELOG=$TIMELOG"
+  echo "TIMELOG=$LT_TIMELOG"
   echo "LT_ARRAY:"
   logtime-marks
 }
@@ -276,7 +276,7 @@ logtime-mark-change() {
   $LT_ARRAY[$1]=$line 
 }
 # Porcelain
-alias ltls="cat $TIMELOG"
+alias ltls="cat $LT_TIMELOG"
 
 # Development
 logtime-dev-parse() {
@@ -289,7 +289,7 @@ logtime-dev-parse() {
         printf '%s\n\n' ${tokens[1]} 
       fi
       IFS=$' \t\n'
-  done < "$TIMELOG" 
+  done < "$LT_TIMELOG" 
   IFS=$' \t\n'
 }
 logtime-dev-parse2() {
@@ -306,6 +306,6 @@ logtime-dev-parse2() {
       IFS=$' \t\n'
       printf '%s %s \n' "$tsHuman" $line
 
-  done < "$TIMELOG" 
+  done < "$LT_TIMELOG" 
   IFS=$' \t\n'
 }
