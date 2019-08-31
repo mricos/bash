@@ -88,7 +88,7 @@ logtime-commit(){
         local commitmsg="${@:1}"
   fi 
 
-  logtime-stop
+  logtime-stop # will not return if stop has not been called 
   local datestart=$(date --date=@$LT_START)
   local datestop=$(date --date=@$LT_STOP)
   local duration=$(logtime-hms $LT_DURATION)
@@ -178,6 +178,8 @@ logtime-stop() {
     LT_DURATION=$((LT_STOP - LT_START))
     LT_STOP_MSG=${@:1}
   fi
+
+  logtime-save
 }
 
 logtime-hms(){
