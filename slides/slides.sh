@@ -51,7 +51,8 @@ slides-xfce(){
 
 slides-load(){
   shopt -s nullglob
-  slides_tty=$(tty)
+  #slides_tty=$(tty)
+  slides_tty=$(cat ./viewer-tty)
   slides_deck=$1
   slides_deltatime=.5
   slides=( $slides_deck/* )
@@ -84,13 +85,31 @@ slides-render(){
   for((i=1;i<=$topmargin;i++)); do echo ""; done
 }
 
-slides-loop(){
-  ITER=0
-  for I in ${slides[@]}
-  do  
-    echo ${I} ${ITER}
+slides-loop() {
+  ITER=0;
+  while true; do
+    modulo=$ITER%3
+    echo "looping "
     ITER=$(expr $ITER + 1)
-    cat ${slides[$ITER]}
+    clear
+    cat ${slides[$modulo]}
+    sleep .5
+
+  done
+}
+
+slides-loop-old(){
+  ITER=0
+  while true 
+  do
+    for I in ${slides[@]}
+    do  
+      echo ${I} ${ITER}
+      ITER=$(expr $ITER + 1)
+      cat ${slides[$ITER]}
+      sleep .25
+    done
+    echo "here"
   done
 }
 
