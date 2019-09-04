@@ -1,9 +1,8 @@
-#bin/bash
-TIMELOG=./time.txt
-source ~/bash/logtime/config.sh
-LT_STATE_DIR=${LT_STATE_DIR:=".logtime/state"}
-LT_COMMIT_DIR=${LT_COMMIT_DIR:=".logtime/commit"}
-LT_DATA_DIR=${LT_DATA_DIR:=".logtime/data"}
+#!/bin/bash
+LT_DIR=~/src/mricos/bash/logtime
+LT_STATE_DIR=$LT_DIR/state
+LT_COMMIT_DIR=$LT_DIR/commit
+LT_DATA_DIR=$LT_DIR/data
 
 logtime-stamp-to-tokens(){
   for f in $1
@@ -19,42 +18,15 @@ logtime-stamp-to-tokens(){
   done
 }
 
-stamp() {
+alias stamp='logtime-data-stamp'
+logtime-data-stamp() {
   local dest="$LT_DATA_DIR/$(date +%s).$1"
   echo "Writing to  $dest"
   echo "Paste then ctrl-d on newline to end."
   cat >> $dest
 }
-# Logtime uses Unix date command to create Unix timestamps.
-# Start with an intention:
-#   logtime-start working on invoices for logtime
-#
-# This starts a timer. Mark time by stating what you have 
-# done while the timer is running:
-#
-#   logtime-mark editing logfile.sh
-#   logtime-mark added first draft of instructions
-#
-# Get the status by:
-#
-#   logtime-status
-#
-# Save state along the way:
-#
-#   logtime-save
-#
-# Restore state:
-#
-#   logtime-load <timestamp> # no argument will list all possible
-# 
-# Commit the list of duration marks:
-#
-#   logtime-commit  # writes to $LT_TIMELOG
-#
-# View time:
-#
-#   cat $LT_TIMELOG
-#
+
+
 logtime-clear(){
   LT_START=""
   LT_START_MSG=""
@@ -71,14 +43,17 @@ logtime-save(){
   if [ -z $LT_START ]; then
     echo "LT_START is empty. Use logtime-start [offset] [message]."
   else
-    local outfile="$LT_STATE_DIR/$LT_START"
+    local msg="$LT_START_MSG"
+    local outfile=$LT_STATE_DIR/$LT_START.$msg
     export ${!LT_@}
     declare -p  ${!LT_@}  > "$outfile"
-    printf '%s\n' "Wrote to $outfile"
+    if [ $? -eq 0 ]; then
+      printf '%s\n' "Wrote to $outfile"
+    fi
   fi
 }
 
-logtime-recall(){
+logtime-restore(){
   local infile="$LT_STATE_DIR/$1"
   if [ ! -f $infile ]; then
     echo "State file not found. Select from:"
@@ -94,35 +69,36 @@ logtime-recall(){
   fi
 }
 
+
 logtime-commit(){
-  IFSOLD=$IFS
   if [ -z $LT_START ]; then
     echo "LT_START is empty. Use logtime-start [offset] [message]."
-  else
-    local datestr=$(date --date=@$LT_START)
-    local outfile="$LT_COMMIT_DIR/$LT_START"
-    echo "$LT_START $LT_START_MSG ($datestr)"
-    #IFS=$'\n'; printf '%s\n' ${LT_ARRAY[@]} ;
-    logtime-marks
-    IFS=$IFSOLD
-  fi
-}
+    return -1
+  fi 
+  
+  if [ -z $LT_STOP ]; then
+    echo "LT_STOP is empty. Use logtime-stop [offset] [message]."
+    return -1
+  fi 
 
-logtime-commit2(){
-  if [ -z $LT_START ]; then
-    echo "LT_START is empty. Use logtime-start [offset] [message]."
-  else
-    #local datestr=$(date +%D --date=@$LT_START)
-    local datestr=$(date  --date=@$LT_START)
-    printf '%s\n%s\n'  "$datestr"  "$LT_START_MSG"
-    logtime-marks2
-    printf '\n' 
-  fi
+  if [ -z $1 ] # if there is one or more arguments, treat it as string
+     then
+        local commitmsg=$LT_STOP_MSG
+      else
+        local commitmsg="${@:1}"
+  fi 
 
-}
-
-logtime-restore(){
-    source $1
+  logtime-stop # will not return if stop has not been called 
+  local datestart=$(date --date=@$LT_START)
+  local datestop=$(date --date=@$LT_STOP)
+  local duration=$(logtime-hms $LT_DURATION)
+  printf '%s\n'  "$datestart" 
+  printf '%s\n'  "$datestop" 
+  printf '%s\n' "Start: $LT_START_MSG"
+  printf '%s %s\n' "Duration:"  $duration
+  logtime-marks
+  printf '%s\n' "Stop: $LT_STOP_MSG"
+  printf '%s\n' "Commit: $commitmsg"
 }
 
 logtime-is-date(){
@@ -149,6 +125,7 @@ logtime-start() {
     # date +%s <-- create UNIX epoch time stamp in seconds
     # date --date=@$TS  <-- create datetime string from TS env var
     LT_START=$(date +%s -d $when)
+    LT_STOP=""
     LT_LASTMARK=$LT_START
     LT_START_MSG="$msg"
   fi
@@ -185,18 +162,24 @@ logtime-mark() {
   IFS=$'\n'  
   LT_ARRAY+=("$dur $msg")
   IFS=$IFS_ORIG
+
+  logtime-save
 }
 
+logtime-unstop() {
+  LT_STOP=""
+}
 logtime-stop() {
-  LT_STOP=$(date +%s)
-  LT_DURATION=$((LT_STOP - LT_START))
-}
+  echo "LT_STOP is $LT_STOP"
+  if [ ! -z "$LT_STOP" ]; then
+    return -1 # LT_STOP is not empty, deny user, must unstop first
+  else 
+    LT_STOP=$(date +%s)
+    LT_DURATION=$((LT_STOP - LT_START))
+    LT_STOP_MSG=${@:1}
+  fi
 
-logtime-string() {
-  echo "\""${@:3}"\""
-}
-logtime-string-old() {
-  echo "$1.$2.\""${@:3}"\""
+  logtime-save
 }
 
 logtime-hms(){
@@ -226,10 +209,8 @@ logtime-status(){
   local elapsed=$((ts - LT_START))
   local elapsedHms=$(logtime-hms $elapsed)
   local datestr=$(date --date="@$LT_START")
-  printf '\n'
   echo "LT_START=$LT_START # ($datestr, elapsed:$elapsedHms)"
   echo "LT_START_MSG=$LT_START_MSG"
-  echo "TIMELOG=$TIMELOG"
   echo "LT_ARRAY:"
   logtime-marks
 }
@@ -246,17 +227,6 @@ logtime-start-set(){
 logtime-increment(){
   local offset=$(logtime-hms-to-seconds $1)
   LT_START=$(($LT_START + $offset))
-}
-
-logtime-marks2(){
-  IFS_ORIG=$IFS
-  IFS=$'\n'
-  for line in ${LT_ARRAY[@]}; do
-     IFS=' ' read left right <<< "$line"
-     deltatime=$(logtime-hms $left)
-     printf '%s (%s)\n' $right $deltatime
-  done; 
-  IFS=$IFS_ORIG
 }
 
 logtime-marks(){
@@ -276,7 +246,31 @@ logtime-mark-change() {
   $LT_ARRAY[$1]=$line 
 }
 # Porcelain
-alias ltls="cat $TIMELOG"
+alias ltls="cat $LT_TIMELOG"
+
+
+logtime-help(){
+helptext='
+Logtime uses Unix date command to create Unix timestamps.
+Start with an intention:
+  logtime-start working on invoices for logtime
+
+This starts a timer. Mark time by stating what you have 
+done while the timer is running:
+
+  logtime-mark editing logfile.sh
+  logtime-mark added first draft of instructions
+
+Get the status by: logtime-status
+
+Save state along the way: logtime-save
+
+Restore state: logtime-load <timestamp> # no argument will list all possible
+
+Commit the list of duration marks: logtime-commit  # writes to $LT_TIMELOG
+'
+  echo "$helptext"
+}
 
 # Development
 logtime-dev-parse() {
@@ -289,7 +283,7 @@ logtime-dev-parse() {
         printf '%s\n\n' ${tokens[1]} 
       fi
       IFS=$' \t\n'
-  done < "$TIMELOG" 
+  done < "$LT_TIMELOG" 
   IFS=$' \t\n'
 }
 logtime-dev-parse2() {
@@ -306,6 +300,6 @@ logtime-dev-parse2() {
       IFS=$' \t\n'
       printf '%s %s \n' "$tsHuman" $line
 
-  done < "$TIMELOG" 
+  done < "$LT_TIMELOG" 
   IFS=$' \t\n'
 }
