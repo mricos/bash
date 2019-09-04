@@ -10,6 +10,14 @@ avtool-record-laptopscreen(){
          -strict experimental \
          $1.flv
 }
+avtool-record-audio(){
+  ffmpeg -f alsa \
+         -ac 2 \
+         -i pulse \
+         -acodec aac \
+         -strict experimental \
+         $1.aac
+}
 avtool-record-monitor(){
   ffmpeg -s 1440x900 \
          -framerate 25 \
