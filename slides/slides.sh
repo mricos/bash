@@ -88,28 +88,23 @@ slides-render(){
 slides-loop() {
   ITER=0;
   while true; do
+    local deltatime=$(cat speed)
     modulo=$ITER%3
-    echo "looping "
     ITER=$(expr $ITER + 1)
-    clear
-    cat ${slides[$modulo]}
-    sleep .5
-
+    #cat ${slides[$modulo]}
+    slides-render $modulo
+    sleep $deltatime
   done
 }
 
-slides-loop-old(){
-  ITER=0
-  while true 
-  do
-    for I in ${slides[@]}
-    do  
-      echo ${I} ${ITER}
-      ITER=$(expr $ITER + 1)
-      cat ${slides[$ITER]}
-      sleep .25
-    done
-    echo "here"
+slides-metronome() {
+  local n=0; 
+  local bpm=120;
+  local secPerBeat=.5;
+
+  while true; do
+    local =$(cat bpm)
+    modulo=$n%3
   done
 }
 
