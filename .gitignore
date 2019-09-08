@@ -4,3 +4,4 @@
 out
 viewer-tty/
 ./slides/speed
+slides/config/configstore/update-notifier-npm.json

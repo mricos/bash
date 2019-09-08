@@ -5,17 +5,28 @@ slides-help(){
   "
 }
 
-slides-viewer(){
-  # XDG_ — based on standard at: specifications.freedesktop.org
-  # xfce4-terminal has only one entry point XDG_CONFIG_HOME
-  # and config file must be in $XDG_CONFIG_HOME/xfce4/terminal/terminalrc
+slides-terminal () {
+  TERM=xterm
+  PS1="slides>"
+  echo LINES are $LINES
+  echo COLUNMS are $COLUMNS
+  echo $(tty) > ./tty
+}
 
+
+slides-viewer(){
+  # Failed attempts..
   #execute_str="bash -c \"tty; ps; cat >&0\""
   #execute_str="bash -c \"cat >&0\""
   #execute_str="/bin/env ./slide-viewer.sh"
   #execute_str="env -i bash --norc --noprofile"
   #execute_str="env -i bash --rcfile ./slide-viewer.sh --noprofile"
-
+  
+  # This works and shows off the Free Desktop Open Standards
+  #
+  # XDG_ — based on standard at: specifications.freedesktop.org
+  # xfce4-terminal has only one entry point XDG_CONFIG_HOME
+  # and config file must be in $XDG_CONFIG_HOME/xfce4/terminal/terminalrc
   export XDG_CONFIG_HOME="./config"
 
   xfce4-terminal --disable-server \
