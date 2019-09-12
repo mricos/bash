@@ -97,7 +97,8 @@ slides-render(){
 }
 
 slides-loop() {
-  ITER=0;
+  local ITER=0;
+  local modulo=0;
   while true; do
     local deltatime=$(cat speed)
     modulo=$ITER%3
@@ -112,10 +113,16 @@ slides-metronome() {
   local n=0; 
   local bpm=120;
   local secPerBeat=.5;
+  local deltatime=$(cat speed)
 
   while true; do
-    local =$(cat bpm)
-    modulo=$n%3
+    local bpm=$(cat bpm)
+    local deltatime=$(cat speed)
+    n=$(expr $n + 1)
+    modulo=$(expr $n % 16)
+    printf '%s' $modulo
+    printf '\n'
+    sleep $deltatime
   done
 }
 
