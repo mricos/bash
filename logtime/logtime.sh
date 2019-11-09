@@ -1,5 +1,6 @@
 #!/bin/bash
-LT_DIR=~/src/mricos/bash/logtime
+#LT_DIR=~/src/mricos/bash/logtime
+LT_DIR=~/.logtime
 LT_STATE_DIR=$LT_DIR/state
 LT_COMMIT_DIR=$LT_DIR/commit
 LT_DATA_DIR=$LT_DIR/data
@@ -253,6 +254,7 @@ logtime-help(){
 helptext='
 Logtime uses Unix date command to create Unix timestamps.
 Start with an intention:
+
   logtime-start working on invoices for logtime
 
 This starts a timer. Mark time by stating what you have 
