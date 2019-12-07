@@ -2,7 +2,7 @@
 #LT_DIR=~/src/mricos/bash/logtime
 LT_DIR=~/.logtime
 LT_STATE_DIR=$LT_DIR/state
-LT_COMMIT_DIR=$LT_DIR/commit
+LT_COMMITS=$LT_DIR/commits
 LT_DATA_DIR=$LT_DIR/data
 
 logtime-stamp-to-tokens(){
@@ -100,6 +100,8 @@ logtime-commit(){
   logtime-marks
   printf '%s\n' "Stop: $LT_STOP_MSG"
   printf '%s\n' "Commit: $commitmsg"
+
+  cat "$(ls $LT_STATE_DIR/$LT_START*)"
 }
 
 logtime-is-date(){
@@ -214,6 +216,20 @@ logtime-status(){
   echo "LT_START_MSG=$LT_START_MSG"
   echo "LT_ARRAY:"
   logtime-marks
+}
+
+logtime-prompt(){
+  PS1='$(logtime-elapsed-hms) > '
+}
+
+logtime-elapsed-hms(){
+  local ts=$LT_STOP
+  if [ -z "$LT_STOP" ]; then
+  local ts=$(date +%s)
+  fi
+  local elapsed=$((ts - LT_START))
+  local elapsedHms=$(logtime-hms $elapsed)
+  echo $elapsedHms
 }
 
 logtime-start-set(){
