@@ -63,7 +63,7 @@ slides-xfce(){
 slides-load(){
   shopt -s nullglob
   #slides_tty=$(tty)
-  slides_tty=$(cat ./viewer-tty)
+  slides_tty=$(cat ./tty)
   slides_deck=$1
   slides_deltatime=.5
   slides=( $slides_deck/* )
