@@ -169,6 +169,17 @@ logtime-mark() {
   logtime-save
 }
 
+logtime-setstart() {
+  local now=$(date +%s)
+  local seconds=$(logtime-hms-to-seconds $1)
+  LT_START=$((now-seconds))
+}
+
+logtime-setstop() {
+  local seconds=$(logtime-hms-to-seconds $1)
+  LT_STOP=$((LT_START+seconds))
+}
+
 logtime-unstop() {
   LT_STOP=""
 }
