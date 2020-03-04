@@ -54,6 +54,30 @@ logtime-save(){
   fi
 }
 
+logtime-selectfile() {
+  local dir=$1
+  echo "Select from:" 
+  echo ""
+  local filenames=($(ls -t1 $dir))
+  for i in "${!filenames[@]}"  #0 indexing ${!varname[@]} returns indices
+  do
+    echo "$((i+1)))  ${filenames[$i]}" 
+  done
+  read filenum 
+  filenum=$((filenum-1))
+  eval "$2=\"$LT_STATE_DIR/${filenames[$filenum]}\""
+}
+
+logtime-restore2(){
+
+  if [ -z $1 ]; then
+    logtime-selectfile $LT_STATE_DIR file  # takes the name of var
+  fi
+  echo "Selected file: $file"
+}
+
+
+
 logtime-restore(){
   local infile="$1"
   if [ -z $1 ]; then
@@ -87,8 +111,8 @@ logtime-restore(){
 }
 
 logtime-get-latest-commit(){
-  files=$($ls -t1 $LT_COMMIT_DIR ) # array of files
-  echo $files
+  local files=($(ls -1t $LT_STATE_DIR )) # array of files
+  echo "${files[@]}"
 }
 
 logtime-commit(){
