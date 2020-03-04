@@ -5,6 +5,7 @@ LT_STATE_DIR=$LT_DIR/state
 LT_COMMITS=$LT_DIR/commits
 LT_DATA_DIR=$LT_DIR/data
 
+
 logtime-stamp-to-tokens(){
   for f in $1
   do
@@ -44,10 +45,9 @@ logtime-save(){
   if [ -z $LT_START ]; then
     echo "LT_START is empty. Use logtime-start [offset] [message]."
   else
-    local msg="$LT_START_MSG"
-    local outfile=$LT_STATE_DIR/$LT_START.$msg
+    local outfile=$LT_STATE_DIR/$LT_START
     export ${!LT_@}
-    declare -p  ${!LT_@}  > "$outfile"
+    declare -ap  ${!LT_@}  > "$outfile"
     if [ $? -eq 0 ]; then
       printf '%s\n' "Wrote to $outfile"
     fi
@@ -55,21 +55,41 @@ logtime-save(){
 }
 
 logtime-restore(){
-  local infile="$LT_STATE_DIR/$1"
-  if [ ! -f $infile ]; then
-    echo "State file not found. Select from:"
-    ls $LT_STATE_DIR
-  else
-    echo "Loading from $infile"
-    cat $infile
-    echo "Sourcing $infile"
-    source "$infile"
-    echo $LT_START
-    export ${!LT_@}
-    export LT_START
+  local infile="$1"
+  if [ -z $1 ]; then
+    echo "No state file given. Select from:"
+    echo ""
+    local filenames=($(ls -t1 $LT_STATE_DIR))
+    for i in "${!filenames[@]}"  #0 indexing ${!varname[@]} returns indices
+    do
+      echo "$((i+1)))  ${filenames[$i]}" 
+    done
+    read filenum 
+    filenum=$((filenum-1))
+    local infile="$LT_STATE_DIR/${filenames[$filenum]}"
+    echo "$infile"
   fi
+
+  # load the variables
+  while read -r line
+  do
+    if [[ $line == declare\ * ]]
+    then
+        tokens=($(echo $line))  # () creates array
+        # override flags with -ag global
+        local cmd="${tokens[0]} -ag ${tokens[@]:2}" 
+        echo $cmd
+        eval  "$cmd"
+    fi
+  done < "$infile"
+
+  export ${!LT_@}
 }
 
+logtime-get-latest-commit(){
+  files=$($ls -t1 $LT_COMMIT_DIR ) # array of files
+  echo $files
+}
 
 logtime-commit(){
   if [ -z $LT_START ]; then
