@@ -1,16 +1,13 @@
-s(){ source $BASH_SOURCE; }
-v(){ vi $BASH_SOURCE; }
-c(){ shellcheck $BASH_SOURCE; }
+#c(){ shellcheck $BASH_SOURCE; }
 QIKREMOTEUSER=mricos
 QIKREMOTEHOST=lenan.net
 QIKREMOTEHOST=localhost
 QIKREMOTEDIR=~/qik/qik
 
 qik(){
-  echo "qiking file $1"
   if [[ $# > 0 ]]; then  # always do this
     TS=$(date +%s)
-    echo "qik'd file with TS=$TS"
+    echo "Qik'd $1 with TS=$TS"
     cp $1 .qik/$1.$TS
     
   fi

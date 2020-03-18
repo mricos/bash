@@ -1,11 +1,22 @@
 #!/bin/bash
 #LT_DIR=~/src/mricos/bash/logtime
 LT_DIR=~/.logtime
+LT_APP=$LT_DIR/logtime.sh
 LT_STATE_DIR=$LT_DIR/state
-LT_COMMITS=$LT_DIR/commits
+LT_COMMIT_DIR=$LT_DIR/commits
 LT_DATA_DIR=$LT_DIR/data
 
+logtime-webserver() {
 
+  while true; do  
+    echo -e "HTTP/1.1 200 OK\r\n$(date)\r\n\r\n$(cat $1)" | nc -vl 8080; 
+  done
+}
+
+
+logtime-now(){
+  echo $(date +%s)
+}
 logtime-stamp-to-tokens(){
   for f in $1
   do
@@ -56,34 +67,37 @@ logtime-save(){
 
 logtime-selectfile() {
   local dir=$1
-  echo "Select from:" 
-  echo ""
-  local filenames=($(ls -t1 $dir))
+  echo "Select from: $dir" 
+  local filenames=""
+  local listing=$(ls -1 "$1")
+  readarray -t filenames <<< "$listing";
   for i in "${!filenames[@]}"  #0 indexing ${!varname[@]} returns indices
   do
-    echo "$((i+1)))  ${filenames[$i]}" 
+    local msg=$(source "$1/${filenames[$i]}"; echo "$LT_START_MSG")  
+    echo "$((i+1)))  ${filenames[$i]}: $msg"
   done
+
   read filenum 
   filenum=$((filenum-1))
-  eval "$2=\"$LT_STATE_DIR/${filenames[$filenum]}\""
+  eval "$2=\"$1/${filenames[$filenum]}\""   # Assign on the left and right!
 }
-
-logtime-restore2(){
-
-  if [ -z $1 ]; then
-    logtime-selectfile $LT_STATE_DIR file  # takes the name of var
-  fi
-  echo "Selected file: $file"
-}
-
-
 
 logtime-restore(){
+  local file=$1
+  if [ -z $file ]; then
+    logtime-selectfile $LT_STATE_DIR file   #env file var set by selectfile 
+  fi
+  logtime-source $file
+}
+
+logtime-restore-old-notneeded(){
   local infile="$1"
   if [ -z $1 ]; then
     echo "No state file given. Select from:"
     echo ""
-    local filenames=($(ls -t1 $LT_STATE_DIR))
+    local listing=$(ls -1 $LT_STATE_DIR)
+    local filenames=""
+    readarray -t <<<"$listing" filenames
     for i in "${!filenames[@]}"  #0 indexing ${!varname[@]} returns indices
     do
       echo "$((i+1)))  ${filenames[$i]}" 
@@ -110,8 +124,24 @@ logtime-restore(){
   export ${!LT_@}
 }
 
+logtime-source(){
+  # load the variables
+  while read -r line
+  do
+    if [[ $line == declare\ * ]]
+    then
+        tokens=($(echo $line))  # () creates array
+        # override flags with -ag global since declare does not provide g
+        local cmd="${tokens[0]} -ag ${tokens[@]:2}" 
+        echo $cmd
+        eval  "$cmd"
+    fi
+  done < "$1"
+
+  export ${!LT_@}
+}
 logtime-get-latest-commit(){
-  local files=($(ls -1t $LT_STATE_DIR )) # array of files
+  local files=($(ls -1t $LT_COMMIT_DIR )) # array of files
   echo "${files[@]}"
 }
 
@@ -137,15 +167,21 @@ logtime-commit(){
   local datestart=$(date --date=@$LT_START)
   local datestop=$(date --date=@$LT_STOP)
   local duration=$(logtime-hms $LT_DURATION)
-  printf '%s\n'  "$datestart" 
-  printf '%s\n'  "$datestop" 
-  printf '%s\n' "Start: $LT_START_MSG"
-  printf '%s %s\n' "Duration:"  $duration
+  printf 'logtime-marks: \n'
   logtime-marks
+  printf 'Date start: %s\n'  "$datestart" 
+  printf 'Date stop: %s\n'  "$datestop" 
+  printf '%s\n' "Start: $LT_START_MSG"
+  printf '%s %s\n' "Duration:" $duration
   printf '%s\n' "Stop: $LT_STOP_MSG"
-  printf '%s\n' "Commit: $commitmsg"
+  printf '%s\n' "Commit msg: $commitmsg"
+  printf 'Commit? ctrl-c to cancel, return to continue\n'
+  read ynCommit
 
-  cat "$(ls $LT_STATE_DIR/$LT_START*)"
+  logtime-save
+  mv "$LT_STATE_DIR/$LT_START" "$LT_COMMIT_DIR/$LT_START"
+  echo "moved $LT_STATE_DIR/$LT_START $LT_COMMIT_DIR/$LT_START"
+  logtime-clear
 }
 
 logtime-is-date(){
@@ -176,14 +212,17 @@ logtime-start() {
     LT_LASTMARK=$LT_START
     LT_START_MSG="$msg"
   fi
-
+    logtime-save
     echo "$LT_START: $LT_START_MSG"
     echo "Now type logtime-mark <+/- offeset> notes about this time mark"
 }
 
-# Marks define a length of time
-# if no length is given in hms, then:
+logtime-start-msg() {
+  LT_START_MSG="$@"
+}
+# Marks define a length of time if no length is given in hms, then:
 # markdur = curtime-LT_START-markdur_total
+#
 # 123423313123 Starting to do something
 # 363 This is the first mark for 0h6m3s
 # 3600 This is second mark string   for 1h
@@ -235,6 +274,7 @@ logtime-stop() {
     LT_STOP=$(date +%s)
     LT_DURATION=$((LT_STOP - LT_START))
     LT_STOP_MSG=${@:1}
+    logtime-mark "$LT_STOP_MSG"
   fi
 
   logtime-save
@@ -280,11 +320,13 @@ logtime-prompt(){
 logtime-elapsed-hms(){
   local ts=$LT_STOP
   if [ -z "$LT_STOP" ]; then
-  local ts=$(date +%s)
+    ts=$(date +%s)
   fi
-  local elapsed=$((ts - LT_START))
+
+  local elapsed=0  
+  elapsed=$((ts - LT_LASTMARK))
   local elapsedHms=$(logtime-hms $elapsed)
-  echo $elapsedHms
+  echo $elapsedHms 
 }
 
 logtime-start-set(){
@@ -296,7 +338,8 @@ logtime-start-set(){
     LT_START=$(date +%s -d $when)
     LT_LASTMARK=$LT_START
 }
-logtime-increment(){
+
+logtime-start-increment(){
   local offset=$(logtime-hms-to-seconds $1)
   LT_START=$(($LT_START + $offset))
 }
@@ -313,9 +356,14 @@ logtime-marks(){
 }
 
 logtime-mark-change() {
-  printf 'Changing %s (ctrl+c to cancel)\n' "${LT_ARRAY[$1]}"
-  read line 
-  $LT_ARRAY[$1]=$line 
+  if [ -z $2 ]; then
+      printf 'Changing %s (ctrl+c to cancel)\n' "${LT_ARRAY[$1]}"
+      read line 
+      LT_ARRAY[$1]=$line 
+  else
+      local msg="${@:2}"
+      LT_ARRAY[$1]="$msg"
+  fi
 }
 # Porcelain
 alias ltls="cat $LT_TIMELOG"
