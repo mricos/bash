@@ -1,5 +1,5 @@
 #!/bin/env bash
-pdir=/home/mricos/src/mricos/bash
+local pdir=/home/mricos/src/mricos/bash
 pshell=$pdir/pshell/pshell.sh # full path to this file
 ptests=$pdir/pshell/tests.sh # full path to this file
 #source $pdir/utils/map-reduce.sh
