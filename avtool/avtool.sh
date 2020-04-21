@@ -37,3 +37,17 @@ Check out following to improve capture:
 https://unix.stackexchange.com/questions/73622/how-to-get-near-perfect-screen-recording-quality
 "
 }
+
+avtool-list-inputs(){
+  arecord -l
+}
+avtool-record-wav() {
+[ -z $1 ] && input=pulse || input=$1  
+[ -z $2 ] && output=$(date +%s) || output=$2  
+echo   ffmpeg \
+         -f alsa \
+         -ac 2 \
+         -i  $input \
+         -acodec wav \
+         $output.wav 
+}
