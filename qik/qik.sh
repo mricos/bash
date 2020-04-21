@@ -2,7 +2,7 @@
 QIKREMOTEUSER=mricos
 QIKREMOTEHOST=lenan.net
 QIKREMOTEHOST=localhost
-QIKREMOTEDIR=~/qik/qik
+QIKREMOTEDIR=~/qik/logan/p3
 
 qik(){
   if [[ $# > 0 ]]; then  # always do this
