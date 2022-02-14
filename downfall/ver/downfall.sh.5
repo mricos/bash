@@ -1,0 +1,35 @@
+function repeat(){
+  for ((i=0;i<$1;i++)); do
+    eval ${*:2}
+  done
+}
+function getByte(){
+    od -vAn -N1 -td < /dev/urandom
+}
+
+# https://www.linux.com/topic/desktop/all-about-curly-braces-bash/
+dec2bin=( {0..1}{0..1}{0..1}{0..1}{0..1}{0..1}{0..1}{0..1})
+
+
+spf=.33
+frame=$1
+numOfFrames=8
+curline=1
+time=$(date +%s%N)
+screen=()
+clear
+for x in $(seq -f "%02g" 0 $frame ); do
+   val=$(getByte)
+   screen[curline]="$(printf "%s %5s %s\n"  $x $val ${dec2bin[$val]})"
+  ((curline=(curline+1)%$LINES))
+done
+
+printf "%s %s %s\n" ${screen[*]}
+repeat $((numOfFrames - curline +2 )) echo  ""
+echo "($time, $spf, $frame, $LINES, $COLUMNS)"
+[[ "$frame" == "7" ]] && sleep .5 
+#[[ "$frame" == "7" ]] &&  echo -n "hit return to continue" && read x
+((frame = (frame+1) % numOfFrames))
+sleep $spf 
+source downfall.sh $frame
+

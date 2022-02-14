@@ -1,0 +1,19 @@
+function repeat(){
+  for ((i=0;i<$1;i++)); do
+    eval ${*:2}
+  done
+}
+
+time=$(date +%s%N )
+repeat $((LINES-10)) echo 
+
+loopcount=0
+for x in {1..10}; do
+   loopcount=loopcount+1
+   echo 1 0 0 $x 
+done
+echo $time "$LINES $COLUMNS"
+sleep .25
+clear
+source downfall.sh
+

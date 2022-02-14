@@ -1,0 +1,71 @@
+function repeat(){
+  for ((i=0;i<$1;i++)); do
+    eval ${*:2}
+  done
+}
+
+function sum(){
+  total=0
+  for i in ${*:1}
+  do
+    total=$(expr $total + $i)
+  done
+  echo $total
+}
+
+function totalOnesByRow(){
+  M=($(printf "%s\n" "${screen[@]}" | awk '{print $4 "\n" }'))
+  bits=${1//1/1 }; # substitute 10010 as 1 00 1 0
+  sum $bits
+}
+
+function totalOnesByCol(){
+  #M=(${*:1})
+  M=($(printf "%s\n" "${screen[@]}" | awk '{print $4 "\n" }'))
+  numRows="${#M[0]}"
+  numCols="${#M[@]}"
+  colTotals=()
+  for ((r=0;r<numRows;r++)); do
+    #echo  row:$r  ${M[$r]}
+    row="${M[$r]}"
+    for ((c=0;c<numCols;c++)); do
+      b=${row:$c:1}
+      ((colTotals[c]=colTotals[c] + b  ))
+    done
+  done
+  echo colTotals: "${colTotals[@]}"
+  echo
+}
+
+dec2bin=( {0..1}{0..1}{0..1}{0..1}{0..1}{0..1}{0..1}{0..1})
+
+spf=.05
+frame=$1
+numOfFrames=8
+time=$(date +%s%N)
+curline=$frame
+readarray -t a screen < ./screen.txt
+val=$(od -vAn -N1 -td < /dev/urandom)
+
+valOnes="$(totalOnesByRow ${dec2bin[$val]})"
+screen[$curline]=\
+"$(printf "%5s %5s %5s %s %s" \
+$curline $frame $val ${dec2bin[$val]} $valOnes)"
+printf "%s\n" "${screen[@]}" > ./screen.txt
+
+clear
+printf "%s\n" "${screen[@]}" 
+repeat $(( LINES/2 - curline -2 ))  echo ""
+totalOnesByCol
+echo -n "($time, $spf, $frame, $LINES, $COLUMNS)"
+
+if [[ "$frame" == "7" ]];  then
+  #read -s x
+  cat /dev/null > ./screen.txt
+  screen=()
+fi
+
+((frame = (frame+1) % numOfFrames))
+sleep $spf 
+
+source downfall.sh $frame
