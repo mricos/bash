@@ -1,8 +1,17 @@
-channels=${channels:-1}                # 1-mono, 2-stereo
+channels=${channels:-2}                # 1-mono, 2-stereo
 audio_input=${audio_input:-pulse}      # pulse or alsa
 samplerate=${samplerate:-48000}        # audio sample rate
 acodec=${acodec:-vorbis}               # vorbis, opus, libopus
-screen=eDP-1                           # avtool-list-screens
+fmt=${fmt:-mkv}                        #  flv, mkv
+framerate=24
+
+#screen=eDP-1                           # avtool-list-screens
+#screen_size=3400x1440
+#screen_coord=":0.0"
+
+screen=HDMI-1                           # avtool-list-screens
+screen_size=3400x1440
+screen_coord=":0.0"
 
 avtool-help(){
 
@@ -18,6 +27,8 @@ channels: $channels  {1,2}
 audio_input: $audio_input  {pulse, alsa}
 acodec: $acodec  {aac,vorbis,opus,s16le, s24e, f32le, pcm_s8}
 samplerate: $samplerate {8000, 16000, 48000}
+framerate: $framerate {1 - 60}
+fmt=$fmt {flv, mkv}
 screen=$screen {avtool-list-screens}
 
 avtool-<tab><tab> to see a list possible commands.
@@ -57,17 +68,23 @@ avtool-fifo(){
          $1 
 }
 
+# ffmpeg -framerate 12 -f x11grab -i :0 -f pulse -ac 2 -i default test.flv
 avtool-record-video(){
-  echo ffmpeg -s $screen_size \
-         -framerate 25 \
+   timestamp=$(date +%s)
+   longname="${acodec}_${channels}_10s_${screen_size}_${framerate}"
+   filename=${1:-$longname}_$timestamp.$fmt
+   ffmpeg -s $screen_size \
+         -framerate $framerate \
          -f x11grab \
-         -i :$screen_coord \
-         -f alsa \
-         -ac 1 \
-         -i pulse \
-         -acodec $acodec  \
+         -i $screen_coord \
+         -f $audio_input \
+         -i default \
+         -ac $channels \
+         -ar $samplerate \
+         -acodec $acodec \
          -strict experimental \
-         $1$(date +%s).mkv
+         -t 10 \
+         $filename
 }
 
 avtool-play(){
@@ -77,19 +94,27 @@ avtool-play(){
 avtool-set-screen(){
   [ -z $1 ] && screen=eDP-1 || screen=$1  
 
-  export screen_coord=$(avtool-list-screens | \
+ 
+  # example: HDMI-1 connected 3440x1440+0+0
+  xrandr_coord=$(avtool-list-screens | \
                  grep connected      | \
                  grep $screen        |  awk '{print $3'})
 
-  export screen_size=$(echo $screen_coord | awk -F+ '{print $1}')
+  IFS=\+ read -r size x y  < <(echo $xandr_coord)
+  #screen_size=$(echo $screen_coord | awk -F+ '{print $1}')
+  screen_size=$size
+  screen_coord="${DISPLAY}${x},${y}"  # :0.0
 
  echo Using screen: $screen
+ echo Using screen_size: $screen_size
+ echo Using screen_coord: $screen_coord
 }
 
 avtool-list-all(){
   xrandr
   arecord -l
 }
+
 
 avtool-list-screens(){
   avtool-list-all | grep connected
