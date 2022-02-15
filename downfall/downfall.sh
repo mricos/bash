@@ -29,6 +29,8 @@ numEvents=2048
 numBins=16
 }
 
+[ -z "$1" ] && resetVars
+
 function screenToMatrix(){
   M=($(printf "%s\n" "${screen[@]}" | awk '{print $3 "\n" }'))
 }
@@ -76,7 +78,7 @@ binValue(){
 }
 
 totalVal=${2:-$totalVal}
-spf=.05
+spf=.1
 frame=$1
 numOfFrames=8
 time=$(date +%s%N)
@@ -143,7 +145,7 @@ if [[ "$frame" == "7" ]];  then
    binValue $sampleSum
    sampleSum=0
   ((curSample++))
-  read -s x
+  #read -s x
   [[ $x = 'r' ]] && resetVars
   cat /dev/null > ./screen.txt
   sum=0
