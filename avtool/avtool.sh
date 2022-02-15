@@ -83,8 +83,7 @@ avtool-record-video(){
          -ar $samplerate \
          -acodec $acodec \
          -strict experimental \
-         -t 10 \
-         $filename
+         $filename >> avtool.log
 }
 
 avtool-play(){
