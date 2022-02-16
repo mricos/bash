@@ -90,18 +90,20 @@ avtool-play(){
   ffplay $1
 }
 
+# eDP-1 connected 1920x1080+709+1440
 avtool-set-screen(){
   [ -z $1 ] && screen=eDP-1 || screen=$1  
-
  
   # example: HDMI-1 connected 3440x1440+0+0
   xrandr_coord=$(avtool-list-screens | \
                  grep connected      | \
                  grep $screen        |  awk '{print $3'})
 
-  IFS=\+ read -r size x y  < <(echo $xandr_coord)
-  #screen_size=$(echo $screen_coord | awk -F+ '{print $1}')
-  screen_size=$size
+  read -r  size x y   < <(IFS=+; echo $xrandr_coord)
+  echo "avtool-set-screen: size=$size x=$x y=$y"
+
+  screen_size=$(echo $screen_coord | awk -F+ '{print $1}')
+  #$screen_size=$size
   screen_coord="${DISPLAY}${x},${y}"  # :0.0
 
  echo Using screen: $screen
