@@ -99,12 +99,11 @@ avtool-set-screen(){
                  grep connected      | \
                  grep $screen        |  awk '{print $3'})
 
-  read -r  size x y   < <(IFS=+; echo $xrandr_coord)
-  echo "avtool-set-screen: size=$size x=$x y=$y"
+  read -r  screen_size x y   < <(IFS=+; echo $xrandr_coord)
+  echo "avtool-set-screen: screen_size=$screen_size x=$x y=$y"
 
-  screen_size=$(echo $screen_coord | awk -F+ '{print $1}')
-  #$screen_size=$size
-  screen_coord="${DISPLAY}${x},${y}"  # :0.0
+  DISPLAY="${DISPLAY}"  # :0.0
+  screen_coord="${x},${y}"
 
  echo Using screen: $screen
  echo Using screen_size: $screen_size
