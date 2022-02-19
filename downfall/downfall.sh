@@ -78,7 +78,7 @@ binValue(){
 }
 
 totalVal=${2:-$totalVal}
-spf=.1
+spf=.01
 frame=$1
 numOfFrames=8
 time=$(date +%s%N)
@@ -140,13 +140,16 @@ echo "colVar: $colVar"
 
 echo "sampleSum: $sampleSum"
 echo "totalVal: $totalVal"
-
+echo ""
+echo "r-reset, p-pause, q-quit"   
 if [[ "$frame" == "7" ]];  then
    binValue $sampleSum
    sampleSum=0
   ((curSample++))
-  #read -s x
-  [[ $x = 'r' ]] && resetVars
+  read  -t .1 -n1 -s x;
+  [[ $x == 'r' ]] && resetVars
+  [[ $x == 'q' ]] && exit
+  [[ $x == 'p' ]] && read -s x
   cat /dev/null > ./screen.txt
   sum=0
   screen=()
