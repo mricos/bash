@@ -1,8 +1,4 @@
-function repeat(){
-  for ((i=0;i<$1;i++)); do
-    eval ${*:2}
-  done
-}
+#!/bin/bash
 
 function sum(){
   total=0
@@ -14,53 +10,61 @@ function sum(){
 }
 
 function resetVars(){
-dec2bin=( {0..1}{0..1}{0..1}{0..1}{0..1}{0..1}{0..1}{0..1})
-curSample=1
-curEvent=0
-totalVal=0
-sampleSum=0
-colTotals=()
-rowkTotals=()
-bins=(0 0 0 0 0 0 0 0)
-M=()
-screen=()
-binSize=256
-numEvents=2048
-numBins=16
+    frame=0
+    curSample=1
+    scurline=0
+    curEvent=0
+    totalVal=0
+    numRows=8
+    numCols=8
+    binSize=256
+    numEvents=2048
+    numBins=8
+    dec2bin=( {0..1}{0..1}{0..1}{0..1}{0..1}{0..1}{0..1}{0..1})
+    expectedColVals=()
+    colSqError=()
+    rowTotals=()
+    colError=()
+    colTotals=()
+    bins=(0 0 0 0 0 0 0 0)
+
+    # Expected value is N choose k, 
+    # 8 summands per sample 
+    binsXaxis=(0 0 0 0 0 0 0 0)
+    binsEx=(1 7 21 35 35 21 7 1 ) # sum=128, expect 35
+    for (( n=0;n<numBins;n++ )); do
+        (( binsXaxis[n]=(n+1)*(1<<8)  ))
+    done
+    M=()
+    screen=()
 }
 
 [ -z "$1" ] && resetVars
 
-function screenToMatrix(){
-  M=($(printf "%s\n" "${screen[@]}" | awk '{print $3 "\n" }'))
+screenToMatrix(){
+  M=($(printf "%s\n" "${screen[@]:2:9}" | awk '{print $3 "\n" }'))
+  #printf "%s\n" ${M[@]}
 }
-function totalOnesByRow(){
+
+totalOnesByRow(){
   bits=${1//1/1 }; # substitute 10010 as 1 00 1 0
   sum $bits
 }
 
-function totalOnesByColInM(){
-  #M=(${*:1})
+totalOnesByColInM(){
   numRows="${#M[@]}"
   numCols="${#M[0]}"
-
   for ((r=0;r<numRows;r++)); do
     row="${M[$r]}"
-    echo
-    echo "Row $r" && read x
     for ((c=0;c<numCols;c++)); do
       b=${row:$c:1}
-      echo "$b: before: ${colTotals[@]}"
+      #echo "$b: before: ${colTotals[@]}"
       ((colTotals[c]=colTotals[c] + b  ))
-      echo "$b: after: ${colTotals[@]}"
-      read x
     done
   done
-
-  echo colTotals: "${colTotals[@]}"
 }
 
-function tallyColSumOfRow(){
+tallyColSumOfRow(){
   row=$1
   for ((c=0;c<numCols;c++)); do
     b=${row:$c:1}
@@ -71,91 +75,125 @@ function tallyColSumOfRow(){
 binValue(){
   for (( n=0;n<numBins;n++ )); do
     if (( "$1" < (( (n+1)*(1<<8))) )); then 
-        ((bins[n]=bins[n] + 1 ))
         break
     fi
   done
+  ((bins[n]=bins[n] + 1 ))
 }
 
 totalVal=${2:-$totalVal}
-spf=.01
-frame=$1
+spf=.1
 numOfFrames=8
 time=$(date +%s%N)
 curline=$frame
-readarray -t a screen < ./screen.txt
 
+#export screen
 
 # Record event of current sample
-# -vAn -> supress index
+#-vAn -> supress index
 # -N1  -> single char smallest possible request of /dev/urandom
-val=$(od -vAn -N1 -td < /dev/random) && ((curEvent++))
+val=$(od -vAn -N1 -td < /dev/urandom \
+                      | sed 's/[[:space:]]//g' ) 
+
+((curEvent++))
 
 valOnes="$(totalOnesByRow ${dec2bin[$val]})"
 ((totalVal = totalVal + $val))
 ((sampleSum = sampleSum + $val))
-screen[$curline]=\
-"$(printf "%5s %5s %s %s" \
-$curline $val ${dec2bin[$val]} $valOnes)"
-screenToMatrix
-printf "%s\n" "${screen[@]}" > ./screen.txt
 
-clear
 header="($time, $spf, $frame, $LINES, $COLUMNS)"
 ((w= COLUMNS-${#header[@]}))
-printf "%${w}s\n\n" "$header"
-printf "%s\n" "${screen[@]}"
 
-repeat $(( LINES/2 - curline -4))  echo ""
-echo "bins: ${bins[@]}"
-echo
-#repeat $(( LINES/2 - curline -2 ))  echo ""
+screen[0]="$(printf "%${w}s\n" "$header")"
+screen[1]="$(printf '\n')"
+((screenline=2+curline))
 
-((expectedColVal=curSample*numCols/2))
-echo "curSample: $curSample"
-echo "curEvent: $curEvent"
-echo "exectedColVal: $expectedColVal"
-tallyColSumOfRow ${dec2bin[$val]}
-echo "colTotals: ${colTotals[@]}"
+screen[$screenline]="$(printf "%5s %5s %s %s\n" \
+  $curline $val ${dec2bin[$val]} $valOnes)"
+((curline+=1))
 
+n=$(( LINES/2 )) 
 
-colError=()
-for ((c=0;c<numCols;c++)); do
-  ((colError[c] = colTotals[c] - expectedColVal ))
-done
-colErrorVar=()
-for ((c=0;c<numCols;c++)); do
-  ((colVar[c] = colTotals[c] - expectedColVal ))
-done
-
-colVar=0
-for ((c=0;c<numCols;c++)); do
-  ((colVar = colVar + (colTotals[c] - expectedColVal)*\
-                       (colTotals[c] - expectedColVal) / $curSample  ))
+start=$((screenline+1))
+for ((i=$start;i<$n;i++)); do
+  screen[$i]="$(printf "\n" )"
 done
 
 
-echo "colError: ${colError[@]}"
-echo "colVar: $colVar"
+sampleSummary(){
 
-echo "sampleSum: $sampleSum"
-echo "totalVal: $totalVal"
-echo ""
-echo "r-reset, p-pause, q-quit"   
+  screenToMatrix     # creates $M = 8 lines of 8 bit-chars
+  totalOnesByColInM
+
+  colError=()
+  for ((c=0;c<numCols;c++)); do
+    ((expectedColVals[c] = curSample * numCols/2)) # uniform distribution
+  done
+
+  for ((c=0;c<numCols;c++)); do
+    ((colError[c] = colTotals[c] - expectedColVals[c] ))
+  done
+
+  colSqError=()
+  for ((c=0;c<numCols;c++)); do
+    ((colSqError[c] =  (colError[c])**2 ))
+  done
+
+  colVar=0
+  for ((c=0;c<numCols;c++)); do
+    ((colVar = (colVar + colSqError[c])  ))
+  done
+  (( colVar/=numCols))
+}
+
+clear
+
+
 if [[ "$frame" == "7" ]];  then
-   binValue $sampleSum
-   sampleSum=0
-  ((curSample++))
-  read  -t .1 -n1 -s x;
+  sampleSummary
+  binValue $sampleSum
+summaryText=$(cat <<EOF
+curSample: $curSample curEvent: $curEvent: $val=${dec2bin[$val]}
+ expectedColVals: $(printf "%4s " ${expectedColVals[@]})
+       colTotals: $(printf "%4s " ${colTotals[@]})
+        colError: $(printf "%4s " ${colError[@]})
+      colSqError: $(printf "%4s " ${colSqError[@]})
+     expectedVar: sum(colSqErr[@])/8 
+          colVar: $colVar
+        totalVal: $totalVal
+expectedTotalVal: $(($curSample*$numRows*128))
+   totalSqValErr: $((($totalVal-($curSample*$numRows*128))**2))
+
+r-reset, p-pause, q-quit 
+EOF
+)
+
+fi
+
+printf "%s\n" "${screen[@]:0:$LINES}"
+echo "sampleSum: $sampleSum"
+printf "     "
+printf "%5s"  ${bins[@]}
+printf "  sum bin event\n     "
+printf "%5s"  ${binsEx[@]}
+printf "  expected bernouli\n      "
+printf "%5s"  ${binsXaxis[@]}
+printf " sum of 8 events \n\n"
+echo  "$summaryText"
+
+if [[ "$frame" == "7" ]];  then
+  read  -t .5 -n1 -s x;
   [[ $x == 'r' ]] && resetVars
   [[ $x == 'q' ]] && exit
   [[ $x == 'p' ]] && read -s x
-  cat /dev/null > ./screen.txt
   sum=0
   screen=()
+  screenline=0
+  ((curSample++))
+  sampleSum=0
+  curline=0
 fi
 
 ((frame = (frame+1) % numOfFrames))
 sleep $spf 
-
-source downfall.sh $frame
+source downfall.sh $frame $totalVal
