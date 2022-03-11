@@ -14,9 +14,6 @@ logtime-webserver() {
 }
 
 
-logtime-now(){
-  echo $(date +%s)
-}
 logtime-stamp-to-tokens(){
   for f in $1
   do
@@ -65,7 +62,7 @@ logtime-save(){
   fi
 }
 
-logtime-selectfile() {
+logtime-restore() {
   local dir=$1
   echo "Select from: $dir" 
   local filenames=""
@@ -82,46 +79,12 @@ logtime-selectfile() {
   eval "$2=\"$1/${filenames[$filenum]}\""   # Assign on the left and right!
 }
 
-logtime-restore(){
+logtime-restore-byfile(){
   local file=$1
   if [ -z $file ]; then
     logtime-selectfile $LT_STATE_DIR file   #env file var set by selectfile 
   fi
   logtime-source $file
-}
-
-logtime-restore-old-notneeded(){
-  local infile="$1"
-  if [ -z $1 ]; then
-    echo "No state file given. Select from:"
-    echo ""
-    local listing=$(ls -1 $LT_STATE_DIR)
-    local filenames=""
-    readarray -t <<<"$listing" filenames
-    for i in "${!filenames[@]}"  #0 indexing ${!varname[@]} returns indices
-    do
-      echo "$((i+1)))  ${filenames[$i]}" 
-    done
-    read filenum 
-    filenum=$((filenum-1))
-    local infile="$LT_STATE_DIR/${filenames[$filenum]}"
-    echo "$infile"
-  fi
-
-  # load the variables
-  while read -r line
-  do
-    if [[ $line == declare\ * ]]
-    then
-        tokens=($(echo $line))  # () creates array
-        # override flags with -ag global
-        local cmd="${tokens[0]} -ag ${tokens[@]:2}" 
-        echo $cmd
-        eval  "$cmd"
-    fi
-  done < "$infile"
-
-  export ${!LT_@}
 }
 
 logtime-source(){
@@ -140,6 +103,7 @@ logtime-source(){
 
   export ${!LT_@}
 }
+
 logtime-get-latest-commit(){
   local files=($(ls -1t $LT_COMMIT_DIR )) # array of files
   echo "${files[@]}"
@@ -217,9 +181,6 @@ logtime-start() {
     echo "Now type logtime-mark <+/- offeset> notes about this time mark"
 }
 
-logtime-start-msg() {
-  LT_START_MSG="$@"
-}
 # Marks define a length of time if no length is given in hms, then:
 # markdur = curtime-LT_START-markdur_total
 #
@@ -339,11 +300,6 @@ logtime-start-set(){
     LT_LASTMARK=$LT_START
 }
 
-logtime-start-increment(){
-  local offset=$(logtime-hms-to-seconds $1)
-  LT_START=$(($LT_START + $offset))
-}
-
 logtime-marks(){
   IFS_ORIG=$IFS
   IFS=$'\n'
@@ -367,7 +323,6 @@ logtime-mark-change() {
 }
 # Porcelain
 alias ltls="cat $LT_TIMELOG"
-
 
 logtime-help(){
 helptext='
@@ -404,23 +359,6 @@ logtime-dev-parse() {
         printf '%s\n\n' ${tokens[1]} 
       fi
       IFS=$' \t\n'
-  done < "$LT_TIMELOG" 
-  IFS=$' \t\n'
-}
-logtime-dev-parse2() {
-  local tsHuman=""
-  IFSOLD=$IFS
-  while IFS= read -r line; do  #get the whole line, no IFS
-      IFS=' '; tokens=($line)    # now IFS is space 
-      if [[ $tokens[0] > 600000 ]]; then
-        tsHuman=$(date -d@${tokens[0]} 2> /dev/null) 
-      else
-        tsHuman=$(logtime-hms ${tokens[0]} 2> /dev/null) 
-      fi
-
-      IFS=$' \t\n'
-      printf '%s %s \n' "$tsHuman" $line
-
   done < "$LT_TIMELOG" 
   IFS=$' \t\n'
 }
