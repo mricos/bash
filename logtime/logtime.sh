@@ -31,7 +31,7 @@ _logtime-save(){
   fi
 }
 
-_logtime-restore() {
+_logtime-select-state() {
   dir=$LT_STATE_DIR
   echo "Select from: $dir" 
   local filenames=""
@@ -45,36 +45,34 @@ _logtime-restore() {
 
   read filenum 
   filenum=$((filenum-1))
-  #eval "$=\"$dir/${filenames[$filenum]}\""   # Assign on the left and right!
   state="$dir/${filenames[$filenum]}"
-  echo "sourcing: $state"
-  source $state
+  _logtime-source $state
 }
 
 
-#_logtime-source(){
-#  # load the variables
-#  while read -r line
-#  do
-#    if [[ $line == declare\ * ]]
-#    then
-#        tokens=($(echo $line))  # () creates array
-#        # override flags with -ag global since declare does not provide g
-#        local cmd="${tokens[0]} -ag ${tokens[@]:2}" 
-#        echo $cmd
-#        eval  "$cmd"
-#    fi
-#  done < "$1"
-#
-#  export ${!LT_@}
-#}
+_logtime-source(){
+
+  while read -r line
+  do
+    if [[ $line == declare\ * ]]
+    then
+        tokens=($(echo $line))  # () creates array
+        # override flags with -ag global since declare does not provide g
+        local cmd="${tokens[0]} -ag ${tokens[@]:2}" 
+        echo $cmd
+        eval  "$cmd"
+    fi
+  done < "$1"
+
+  export ${!LT_@}
+}
 
 logtime-info(){
     declare -p  ${!LT_@} 
 }
 
 logtime-load(){
-  _logtime-restore $LT_STATE_DIR
+  _logtime-select-state
   _logtime-prompt
 }
 
