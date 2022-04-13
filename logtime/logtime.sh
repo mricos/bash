@@ -67,10 +67,6 @@ _logtime-source(){
   export ${!LT_@}
 }
 
-logtime-info(){
-    declare -p  ${!LT_@} 
-}
-
 logtime-load(){
   _logtime-select-state
   _logtime-prompt
@@ -229,10 +225,11 @@ logtime-status(){
   local elapsed=$((ts - LT_START))
   local elapsedHms=$(_logtime-hms $elapsed)
   local datestr=$(date --date="@$LT_START")
-  echo "LT_START=$LT_START # ($datestr, elapsed:$elapsedHms)"
-  echo "LT_START_MSG=$LT_START_MSG"
-  echo "LT_ARRAY:"
-  logtime-marks
+  echo
+  echo "  LT_START=$LT_START ($datestr, elapsed:$elapsedHms)"
+  echo "  LT_START_MSG=$LT_START_MSG"
+  echo "  Run logtime-marks to see marks for current sequence"
+  echo 
 }
 
 
@@ -247,15 +244,26 @@ logtime-marks(){
   IFS=$IFS_ORIG
 }
 
-logtime-mark-change() {
-  if [ -z $2 ]; then
-      printf 'Changing %s (ctrl+c to cancel)\n' "${LT_ARRAY[$1]}"
-      read line 
-      LT_ARRAY[$1]=$line 
-  else
-      local msg="${@:2}"
-      LT_ARRAY[$1]="$msg"
+# https://stackoverflow.com/questions/10679188/casing-arrow-keys-in-bash
+logtime-mark-edit() {
+  i=${1-0}
+  len="${#LT_ARRAY[@]}"
+  curline="${LT_ARRAY[$i]}"
+  escape_char=$(printf "\u1b")
+  read -p "$i: $curline" -rsn1 mode # get 1 character
+  if [[ $mode == $escape_char ]]; then
+    read -rsn2 -p "$curline"  mode # read 2 more chars
   fi
+  case $mode in
+    '[A') echo;  logtime-mark-edit  $(((i + len +1)%len)) ;;
+    '[B') echo; logtime-mark-edit   $(((i + len -1)%len)) ;;
+    *) 
+      read line
+  esac
+ 
+  echo "$1: ready to set: $line" 
+  return; 
+  #LT_ARRAY[$1]="$line"
 }
 
 logtime-commits(){
