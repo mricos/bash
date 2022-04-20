@@ -29,8 +29,6 @@ _logtime-save(){
 }
 
 logtime-select-state() {
-  dir=$LT_STATE_DIR
-  echo "Select from: $dir" 
   logtime-states
   read filenum 
   filenum=$((filenum-1))
@@ -79,12 +77,12 @@ _logtime-hms-to-seconds(){
 }
 
 _logtime-elapsed-hms(){
-  local ts=$LT_STOP
+  ts=$LT_STOP
   if [ -z "$LT_STOP" ]; then
     ts=$(date +%s)
   fi
 
-  local elapsed=0  
+  elapsed=0  
   elapsed=$((ts - LT_LASTMARK))
   local elapsedHms=$(_logtime-hms $elapsed)
   echo $elapsedHms 
@@ -98,16 +96,34 @@ _logtime-prompt(){
 #   CLI API
 #######################################################################
 
-logtime-states(){
-  local filenames=""
+logtime-objects() {
+  local dir=$1 # have to provide dir
   local listing=$(ls -1 "$dir")
+  local filenames=""
   readarray -t filenames <<< "$listing";
   for i in "${!filenames[@]}"  #0 indexing ${!varname[@]} returns indices
   do
-    local msg=$(source "$dir/${filenames[$i]}"; echo "$LT_START_MSG")  
+    #local msg=$(source "$dir/${filenames[$i]}"; echo "$LT_START_MSG")  
+    local msg=$(_logtime-get-startmsg "$dir/${filenames[$i]}")  
     echo "$((i+1)))  ${filenames[$i]}: $msg"
   done
+}
 
+_logtime-get-startmsg(){
+    echo $(source "$1"; echo "$LT_START_MSG")  
+}
+
+logtime-states(){
+  logtime-objects "$LT_STATE_DIR" 
+}
+
+logtime-commits(){
+  objs=$(logtime-objects "$LT_COMMIT_DIR")
+  for commit in $(ls $LT_COMMIT_DIR)
+  do
+      printf "%s %s\n" "$commit" "$(date --date="@$commit")"
+      printf "  %s\n" "$commit" "$(date --date="@$commit")"
+  done
 }
 
 logtime-load(){
@@ -205,9 +221,8 @@ logtime-start() {
 # 9003 marktime_total 
 logtime-mark() {
   local curtime=$(date +%s)
-  local dur=0
+  dur=0
   dur=$(_logtime-hms-to-seconds  $1)
- 
   if [ "$dur" -eq 0 ] 2>/dev/null  # 0 if not an hms string
   then
     dur=$(( $curtime - $LT_LASTMARK ))
@@ -216,14 +231,19 @@ logtime-mark() {
     local msg="${@:2}"
   fi
 
-  LT_LASTMARK=$(($LT_LASTMARK + $dur ))
+  # Logtime's prompt shows how much time since last mark.
+  # If the user adds a duration and it is less than 
+  # (curtime - LT_LASTMARK) then add the user's duration
+  # to LASTMARK. Otherwise LASTMARK=currentTime.
+  #
+  # Rather than conditional else, do it in two lines like this:
+  (( dur < curtime - LT_LASTMARK )) &&  LT_LASTMARK=$((LT_LASTMARK + dur));
+  (( dur >= curtime - LT_LASTMARK )) && LT_LASTMARK=$curtime;
 
   IFS_ORIG=$IFS
-  (( LT_MARK_TOTAL += dur ))
   IFS=$'\n'  
   LT_ARRAY+=("$dur $msg")
   IFS=$IFS_ORIG
-
   _logtime-save
 }
 
@@ -292,14 +312,6 @@ logtime-undo-mark(){
   dur=$(_logtime-hms-to-seconds  ${mark[0]})
   LT_LASTMARK=$(($LT_LASTMARK - $dur ))
   logtime-delete-mark ${#LT_ARRAY[@]}
-}
-
-logtime-commits(){
-  commits=$(ls -1 $LT_COMMIT_DIR)
-  for commit in ${commits[@]}
-  do
-      printf "%s %s\n" "$commit" "$(date --date="@$commit")"
-  done
 }
 
 logtime-help(){
