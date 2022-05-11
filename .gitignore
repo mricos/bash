@@ -1,9 +1,14 @@
+*.aac
+*.flv
 *.wav
 *.swp
 .qik
 .timecard
 .logtime
 out
+logtime/data
+slides/bpm
+slides/speed
 viewer-tty/
 avtool/recordings
 ./slides/speed
