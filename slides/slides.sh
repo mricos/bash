@@ -135,3 +135,8 @@ slides-next(){
   sleep $deltatime 
   slides-next $deltatime
 }
+
+# Fill the screen 
+slides-fill() {
+tput civis; clear; for row in $(seq 24); do for col in $(seq 4); do echo -n "   **************  " ;  sleep .50; done; echo ""; done; tput cvvis
+}

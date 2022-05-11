@@ -1,3 +1,5 @@
+#source ../utils/utils.sh
+source plinko-server.sh
 source ./plinko.cfg
 
 plinko-help()
@@ -155,27 +157,4 @@ plinko-build(){
   outfile="${1:-plinko.html}"
   nodes=("plinko-nodes $m $n  0") # returns big string, not array
   plinko-create-page nodes[@] > "$outfile"  # don't need @ for string
-}
-#!/usr/bin/env bash
-
-plinko-start(){
-  plinko-server &
-  plinkopid=$!
-  echo "Pid: $plinkopid"
-  echo "$plinkopid" > plinko.pid
-}
-
-plinko-kill(){
-  kill -- -$(cat plinko.pid)
-  rm plinko.pid
-}
-
-plinko-server(){
-while { echo -en "$RESPONSE"; } | \
-        exec -a "plinko-server" nc -lv -p "${1:-8080}"; do
-  RESPONSE="HTTP/1.1 200 OK\r\n\
-  Connection: keep-alive\r\n\r\n\
-  $(cat plinko.html)\
-  \r\n"
-done
 }

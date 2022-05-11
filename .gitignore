@@ -1,7 +1,10 @@
+*.wav
+*.swp
 .qik
 .timecard
 .logtime
 out
 viewer-tty/
+avtool/recordings
 ./slides/speed
 slides/config/configstore/update-notifier-npm.json
