@@ -1,10 +1,11 @@
 #!/bin/bash
 
+# sums all tokens passed on the commandline using expr
 function sum(){
-  total=0
-  for i in ${*:1}
+  local total=0
+  for i in "$@"
   do
-    total=$(expr $total + $i)
+      total=$(( total + i))
   done
   echo $total
 }
