@@ -213,6 +213,10 @@ logtime-states(){
   _logtime-objects "$LT_STATES" 
 }
 
+logtime-store(){
+  echo "$(date +%s) $1" >> $LT_DIR/store/$LT_START.store
+}
+
 logtime-commits(){
   _logtime-objects "$LT_COMMITS"
 #  for commit in $(ls $LT_COMMITS)
