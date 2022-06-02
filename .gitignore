@@ -13,3 +13,7 @@ viewer-tty/
 avtool/recordings
 ./slides/speed
 slides/config/configstore/update-notifier-npm.json
+*.mkv
+*.wav
+*.ogg
+

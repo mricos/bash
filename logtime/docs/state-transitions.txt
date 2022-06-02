@@ -1,0 +1,31 @@
+State Transition Table for logtime v001
+
+                                  States
+  Actions
+                     IDLE         RUNNING               STOPPED
+
+logtime-start       RUNNING       RUNNING           j    IDLE 
+                                                      side effects
+
+logtime-mark         IDLE         RUNNING              STOPPED
+                    err msg    augment LT_ARRAY 
+                                logtime-save
+
+logtime-stop        IDLE          STOPPED              STOPPED
+                               augment LT_ARRAY 
+                                logtime-save
+
+logtime-save        IDLE         RUNNING              STOPPED
+                   err msg        err msg        ~/.logtime/states/NOMID
+
+logtime-commit      IDLE         RUNNING               STOPPED
+                             err:call stop first    logtime-save
+                                                    mv state/nom commit/nom
+                                                    logtime-clear
+
+logtime-clear       IDLE          RUNNING               IDLE
+                           err:call stop first     LT_START=""
+                                                   LT_START_MSG=""
+                                                   LT_MARK_TOTAL=0
+                                                   LT_LASTMARK=0
+                                                   LT_ARRAY=()

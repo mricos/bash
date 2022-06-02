@@ -1,62 +1,33 @@
 #!/bin/bash
-#LT_DIR=~/src/mricos/bash/logtime
+
 LT_DIR=~/.logtime
-LT_APP=$LT_DIR/logtime.sh
-LT_STATE_DIR=$LT_DIR/state
-LT_COMMIT_DIR=$LT_DIR/commits
-LT_DATA_DIR=$LT_DIR/data
+LT_STATES=$LT_DIR/states
+LT_COMMITS=$LT_DIR/commits
 
-logtime-webserver() {
+alias mark="logtime-mark"
+alias marks="logtime-marks"
+alias status="logtime-status"
 
-  while true; do  
-    echo -e "HTTP/1.1 200 OK\r\n$(date)\r\n\r\n$(cat $1)" | nc -vl 8080; 
-  done
+#######################################################################
+#  Helper functions start with _ 
+#######################################################################
+_logtime-clear(){
+  LT_START=""             # set at creation 
+  LT_STOP=""              # empty until commit
+  LT_START_MSG=""         # set at creation
+  LT_COMMIT_MSG=""        # empty until commit
+  LT_LASTMARK=$(date +%s) # timestamp
+  LT_MARKS=()             # array of strings; duration in seconds
+  LT_META=""              # filename of corresponding meta data 
 }
 
-
-logtime-now(){
-  echo $(date +%s)
-}
-logtime-stamp-to-tokens(){
-  for f in $1
-  do
-    echo "Processing $f file..."
-    # take action on each file. $f store current file name
-    #cat $f
-    local basename=$(basename $f)
-    bar=(`echo $basename | tr '.' ' '`)
-    local day=$(date +"%D %a" -d@${bar[0]})
-    echo $basename
-    printf '%s %s\n'  "$r"  "$LT_START_MSG"
-  done
-}
-
-alias stamp='logtime-data-stamp'
-logtime-data-stamp() {
-  local dest="$LT_DATA_DIR/$(date +%s).$1"
-  echo "Writing to  $dest"
-  echo "Paste then ctrl-d on newline to end."
-  cat >> $dest
-}
-
-
-logtime-clear(){
-  LT_START=""
-  LT_START_MSG=""
-  LT_MARK_TOTAL=0
-  LT_LASTMARK=0
-  LT_ARRAY=()
-}
-
-logtime-info(){
-    declare -p  ${!LT_@} 
-}
-
-logtime-save(){
+_logtime-save(){
   if [ -z $LT_START ]; then
     echo "LT_START is empty. Use logtime-start [offset] [message]."
   else
-    local outfile=$LT_STATE_DIR/$LT_START
+    local outfile=$LT_DIR/states/$LT_START
+    local backup=$LT_DIR/backup/$LT_START.backup
+    cp  $outfile $backup # 2> /dev/null # outfile does not exist
     export ${!LT_@}
     declare -ap  ${!LT_@}  > "$outfile"
     if [ $? -eq 0 ]; then
@@ -65,136 +36,121 @@ logtime-save(){
   fi
 }
 
-logtime-selectfile() {
-  local dir=$1
-  echo "Select from: $dir" 
+_logtime-select-state() {
+  _logtime-objects "$LT_STATES" 
+  local listing=$(ls -1 "$LT_STATES")
   local filenames=""
-  local listing=$(ls -1 "$1")
   readarray -t filenames <<< "$listing";
-  for i in "${!filenames[@]}"  #0 indexing ${!varname[@]} returns indices
-  do
-    local msg=$(source "$1/${filenames[$i]}"; echo "$LT_START_MSG")  
-    echo "$((i+1)))  ${filenames[$i]}: $msg"
-  done
-
-  read filenum 
+  read -p "Select state to load:" filenum 
   filenum=$((filenum-1))
-  eval "$2=\"$1/${filenames[$filenum]}\""   # Assign on the left and right!
+  _logtime-source "$LT_STATES/${filenames[$filenum]}"
 }
 
-logtime-restore(){
-  local file=$1
-  if [ -z $file ]; then
-    logtime-selectfile $LT_STATE_DIR file   #env file var set by selectfile 
-  fi
-  logtime-source $file
+logtime-load-type() {
+  local type=${1:-states} 
+  _logtime-objects "$LT_DIR/$type" 
+  local listing=$(ls -1 "$LT_DIR/$type")
+  local filenames=""
+  readarray -t filenames <<< "$listing";
+  read -p "Select $type to load:" filenum 
+  filenum=$((filenum-1))
+  _logtime-clear
+  _logtime-source "$LT_DIR/$type/${filenames[$filenum]}"
 }
 
-logtime-restore-old-notneeded(){
-  local infile="$1"
-  if [ -z $1 ]; then
-    echo "No state file given. Select from:"
-    echo ""
-    local listing=$(ls -1 $LT_STATE_DIR)
-    local filenames=""
-    readarray -t <<<"$listing" filenames
-    for i in "${!filenames[@]}"  #0 indexing ${!varname[@]} returns indices
-    do
-      echo "$((i+1)))  ${filenames[$i]}" 
-    done
-    read filenum 
-    filenum=$((filenum-1))
-    local infile="$LT_STATE_DIR/${filenames[$filenum]}"
-    echo "$infile"
-  fi
-
-  # load the variables
+_logtime-source(){
+  # reads file with path = $1
   while read -r line
   do
     if [[ $line == declare\ * ]]
     then
         tokens=($(echo $line))  # () creates array
-        # override flags with -ag global
+        # override flags with -ag global 
+        # since declare does not provide g
         local cmd="${tokens[0]} -ag ${tokens[@]:2}" 
-        echo $cmd
-        eval  "$cmd"
-    fi
-  done < "$infile"
-
-  export ${!LT_@}
-}
-
-logtime-source(){
-  # load the variables
-  while read -r line
-  do
-    if [[ $line == declare\ * ]]
-    then
-        tokens=($(echo $line))  # () creates array
-        # override flags with -ag global since declare does not provide g
-        local cmd="${tokens[0]} -ag ${tokens[@]:2}" 
-        echo $cmd
         eval  "$cmd"
     fi
   done < "$1"
-
   export ${!LT_@}
-}
-logtime-get-latest-commit(){
-  local files=($(ls -1t $LT_COMMIT_DIR )) # array of files
-  echo "${files[@]}"
+  logtime-status
 }
 
-logtime-commit(){
-  if [ -z $LT_START ]; then
-    echo "LT_START is empty. Use logtime-start [offset] [message]."
-    return -1
-  fi 
-  
-  if [ -z $LT_STOP ]; then
-    echo "LT_STOP is empty. Use logtime-stop [offset] [message]."
-    return -1
-  fi 
+_logtime-hms(){
+  local h=$(($1 / 3600));
+  local m=$((($1 % 3600) / 60));
+  local s=$(($1 % 60));
+  echo "${h}h${m}m${s}s";
+}
 
-  if [ -z $1 ] # if there is one or more arguments, treat it as string
+_logtime-hms-to-seconds(){
+  seconds=$(echo $1 | awk -F'[hmd:]' \
+    '{ print ($1 * 3600) + ($2 * 60) + $3 }')
+ echo $seconds
+}
+
+_logtime-elapsed-hms(){
+  ts=$LT_STOP
+  if [ -z "$LT_STOP" ]; then
+    ts=$(date +%s)
+  fi
+  local elapsed=0  
+  elapsed=$((ts - LT_LASTMARK))
+  local elapsedHms=$(_logtime-hms $elapsed)
+  echo $elapsedHms 
+}
+
+_logtime-get-startmsg(){
+  # sources in temp shell via $()
+  echo $(source "$1"; echo "$LT_START_MSG")
+}
+
+_logtime-objects() {
+  local dir=$1 # have to provide dir
+  local listing=$(ls -1 "$dir")
+  local filenames=""
+  readarray -t filenames <<< "$listing";
+  for i in "${!filenames[@]}"  #0 indexing ${!varname[@]} returns indices
+  do
+    #local msg=$(source "$dir/${filenames[$i]}"; echo "$LT_START_MSG")  
+    local msg=$(_logtime-get-startmsg "$dir/${filenames[$i]}")  
+    echo "$((i+1)))  ${filenames[$i]}: $msg"
+  done
+}
+
+_logtime-stop() {
+  echo "LT_STOP is $LT_STOP"
+  if [ ! -z "$LT_STOP" ]; then
+    return -1 # LT_STOP is not empty, deny user, must unstop first
+  else 
+    LT_STOP=$(date +%s)
+  fi
+  logtime-mark "STOPPED"
+  _logtime-save
+}
+
+#######################################################################
+#   CLI API
+#######################################################################
+logtime-prompt(){
+  # Logtime's prompt shows how much time since last mark.
+  local msg='$(_logtime-elapsed-hms)> '
+  PS1="$msg"
+}
+
+logtime-load-old(){
+   if [ -z $1 ]              # if first arg does not exist 
      then
-        local commitmsg=$LT_STOP_MSG
+       echo "Select state: # filename of corresponding meta data"
+       _logtime-select-state
       else
-        local commitmsg="${@:1}"
+       _logtime-clear        # zeros out all local bash variables LT_*
+       _logtime-source $1    # reads in declare statements to set LT_ vars
   fi 
-
-  logtime-stop # will not return if stop has not been called 
-  local datestart=$(date --date=@$LT_START)
-  local datestop=$(date --date=@$LT_STOP)
-  local duration=$(logtime-hms $LT_DURATION)
-  printf 'logtime-marks: \n'
-  logtime-marks
-  printf 'Date start: %s\n'  "$datestart" 
-  printf 'Date stop: %s\n'  "$datestop" 
-  printf '%s\n' "Start: $LT_START_MSG"
-  printf '%s %s\n' "Duration:" $duration
-  printf '%s\n' "Stop: $LT_STOP_MSG"
-  printf '%s\n' "Commit msg: $commitmsg"
-  printf 'Commit? ctrl-c to cancel, return to continue\n'
-  read ynCommit
-
-  logtime-save
-  mv "$LT_STATE_DIR/$LT_START" "$LT_COMMIT_DIR/$LT_START"
-  echo "moved $LT_STATE_DIR/$LT_START $LT_COMMIT_DIR/$LT_START"
-  logtime-clear
-}
-
-logtime-is-date(){
-  date -d "$1" &>/dev/null; echo $? # returns 0 if true, 1 if error
-}
-
-logtime-str2time(){
-  date +%s -d "$1"
 }
 
 logtime-start() {
   if [ ! -z $LT_START ]; then
-    echo "LT_START not empty. Use logtime-clear to clear."
+    echo "LT_START not empty. Use _logtime-clear to clear."
     return -1
   else
     if date -d "$1" &>/dev/null; then  # test, send stdio to /dev/null
@@ -212,14 +168,11 @@ logtime-start() {
     LT_LASTMARK=$LT_START
     LT_START_MSG="$msg"
   fi
-    logtime-save
+    _logtime-save
     echo "$LT_START: $LT_START_MSG"
     echo "Now type logtime-mark <+/- offeset> notes about this time mark"
 }
 
-logtime-start-msg() {
-  LT_START_MSG="$@"
-}
 # Marks define a length of time if no length is given in hms, then:
 # markdur = curtime-LT_START-markdur_total
 #
@@ -229,72 +182,87 @@ logtime-start-msg() {
 # 1800 This thrid task lasted 0h30m0s
 # 9003 marktime_total 
 logtime-mark() {
+  [ ! -z "$LT_STOP" ] && echo "protected" && return 
   local curtime=$(date +%s)
-  local dur=0
-  dur=$(logtime-hms-to-seconds  $1)
- 
-  if [ "$dur" -eq 0 ] 2>/dev/null  # 0 if not an hms string
+  dur=0
+  dur=$(_logtime-hms-to-seconds  $1)
+  if [ "$dur" -eq 0 ] # 2>/dev/null  # 0 if not an hms string
   then
     dur=$(( $curtime - $LT_LASTMARK ))
-    msg="$@"
+    local msg="${@:1}"
   else
-    msg="${@:2}"
+    local msg="${@:2}"
   fi
 
-  LT_LASTMARK=$curtime
-
+  # If the user adds a duration and it is less than 
+  # (curtime - LT_LASTMARK) then add the user's duration
+  # to LASTMARK. Otherwise LASTMARK=currentTime.
+  #
+  # Rather than conditional else, do it in two lines like this:
+  local lastmark=$LT_LASTMARK
+  (( dur < curtime - lastmark )) &&  LT_LASTMARK=$((LT_LASTMARK + dur));
+  (( dur >= curtime - lastmark )) && LT_LASTMARK=$curtime;
   IFS_ORIG=$IFS
-  (( LT_MARK_TOTAL += dur ))
   IFS=$'\n'  
-  LT_ARRAY+=("$dur $msg")
+  LT_MARKS+=("$dur $msg")    # array created on newline boundaries
   IFS=$IFS_ORIG
-
-  logtime-save
+  _logtime-save
 }
 
-logtime-setstart() {
-  local now=$(date +%s)
-  local seconds=$(logtime-hms-to-seconds $1)
-  LT_START=$((now-seconds))
+logtime-states(){
+  _logtime-objects "$LT_STATES" 
 }
 
-logtime-setstop() {
-  local seconds=$(logtime-hms-to-seconds $1)
-  LT_STOP=$((LT_START+seconds))
+logtime-commits(){
+  _logtime-objects "$LT_COMMITS"
+#  for commit in $(ls $LT_COMMITS)
+#  do
+#    printf "%s %s\n" "$commit" "$(date --date="@$commit")"
+#    printf "  %s\n" "$commit" "$(date --date="@$commit")"
+#  done
 }
 
-logtime-unstop() {
-  LT_STOP=""
-}
-logtime-stop() {
-  echo "LT_STOP is $LT_STOP"
-  if [ ! -z "$LT_STOP" ]; then
-    return -1 # LT_STOP is not empty, deny user, must unstop first
-  else 
-    LT_STOP=$(date +%s)
-    LT_DURATION=$((LT_STOP - LT_START))
-    LT_STOP_MSG=${@:1}
-    logtime-mark "$LT_STOP_MSG"
-  fi
+logtime-commit(){
+  if [ -z $LT_START ]; then
+    echo "LT_START is empty. Use logtime-start [offset] [message]."
+    return -1
+  fi 
+  
+  if [ -z $1 ] # if there is one or more arguments, treat it as string
+  then
+    #echo "LT_STOP is empty. Use logtime-stop [offset] [message]."
+    commitmsg="Committed $LT_START_MSG at $LT_STOP"
+  else
+    local commitmsg="${@:1}"
+  fi 
 
-  logtime-save
-}
+  LT_COMMIT="$commitmsg"
 
-logtime-hms(){
-  local h=$(($1 / 3600));
-  local m=$((($1 % 3600) / 60));
-  local s=$(($1 % 60));
-  echo "${h}h${m}m${s}s";
-}
+  _logtime-stop # will not return if stop has not been called 
+  local datestart=$(date --date=@$LT_START)
+  local datestop=$(date --date=@$LT_STOP)
+  local deltaSeconds=$(($LT_STOP - $LT_START))
 
-logtime-hms-to-seconds(){
-  seconds=$(echo $1 | awk -F'[hmd:]' \
-    '{ print ($1 * 3600) + ($2 * 60) + $3 }')
- echo $seconds
+  local duration=$(_logtime-hms $deltaSeconds )
+  printf 'logtime-marks: \n'
+  logtime-marks
+  printf '%s\n' "Start message: $LT_START_MSG"
+  printf 'Date start: %s\n'  "$datestart" 
+  printf 'Date stop: %s\n'  "$datestop" 
+  printf '%s %s\n' "Duration:" $duration
+  printf '%s\n' "Commit msg: $commitmsg"
+  printf 'Commit? ctrl-c to cancel, return to continue\n'
+  read ynCommit
+
+  _logtime-save
+  mv "$LT_STATES/$LT_START" "$LT_COMMITS/$LT_START"
+  rm "$LT_STATES/$LT_START.*" 
+  echo "moved $LT_STATES/$LT_START $LT_COMMITS/$LT_START"
+  _LT_LAST_START=$LT_START
+  _logtime-clear
 }
 
 logtime-status(){
-
   if [ -z "$LT_START" ]; then
     echo "
    No timer started. 
@@ -305,69 +273,28 @@ logtime-status(){
 
   local ts=$(date +%s)
   local elapsed=$((ts - LT_START))
-  local elapsedHms=$(logtime-hms $elapsed)
+  local dur=$(($LT_STOP - LT_START))
+  local elapsedHms=$(_logtime-hms $elapsed)
   local datestr=$(date --date="@$LT_START")
-  echo "LT_START=$LT_START # ($datestr, elapsed:$elapsedHms)"
-  echo "LT_START_MSG=$LT_START_MSG"
-  echo "LT_ARRAY:"
-  logtime-marks
-}
-
-logtime-prompt(){
-  PS1='$(logtime-elapsed-hms) > '
-}
-
-logtime-elapsed-hms(){
-  local ts=$LT_STOP
-  if [ -z "$LT_STOP" ]; then
-    ts=$(date +%s)
-  fi
-
-  local elapsed=0  
-  elapsed=$((ts - LT_LASTMARK))
-  local elapsedHms=$(logtime-hms $elapsed)
-  echo $elapsedHms 
-}
-
-logtime-start-set(){
-    if date -d "$1" 2>: 1>:; then  # test, send stdio to /dev/null
-      local when=$1;
-    else
-      local when="now";
-    fi
-    LT_START=$(date +%s -d $when)
-    LT_LASTMARK=$LT_START
-}
-
-logtime-start-increment(){
-  local offset=$(logtime-hms-to-seconds $1)
-  LT_START=$(($LT_START + $offset))
+  echo
+  echo "  LT_START=$LT_START ($datestr, elapsed:$elapsedHms)"
+  echo "  LT_START_MSG=$LT_START_MSG"
+  echo "  LT_STOP=$LT_STOP ($datestr, durration: $dur)"
+  echo "  LT_COMMIT_MSG=$LT_COMMIT_MSG"
+  echo "  Run logtime-marks to see marks for current sequence"
+  echo 
 }
 
 logtime-marks(){
   IFS_ORIG=$IFS
-  IFS=$'\n'
-  for line in ${LT_ARRAY[@]}; do
+  IFS=$"\n"
+  for line in "${LT_MARKS[@]}"; do
      IFS=' ' read left right <<< "$line"
-     deltatime=$(logtime-hms $left)
-     printf "%s %s for %s\n" $left $right $deltatime
-  done; 
+     local deltatime=$(_logtime-hms $left)
+     printf "%s %s for %s\n" $left "$right" $deltatime
+  done;
   IFS=$IFS_ORIG
 }
-
-logtime-mark-change() {
-  if [ -z $2 ]; then
-      printf 'Changing %s (ctrl+c to cancel)\n' "${LT_ARRAY[$1]}"
-      read line 
-      LT_ARRAY[$1]=$line 
-  else
-      local msg="${@:2}"
-      LT_ARRAY[$1]="$msg"
-  fi
-}
-# Porcelain
-alias ltls="cat $LT_TIMELOG"
-
 
 logtime-help(){
 helptext='
@@ -379,22 +306,107 @@ Start with an intention:
 This starts a timer. Mark time by stating what you have 
 done while the timer is running:
 
-  logtime-mark editing logfile.sh
-  logtime-mark added first draft of instructions
+  logtime-mark "editing logfile.sh"
+  logtime-mark "added first draft of instructions"
 
 Get the status by: logtime-status
-
-Save state along the way: logtime-save
-
 Restore state: logtime-load <timestamp> # no argument will list all possible
-
 Commit the list of duration marks: logtime-commit  # writes to $LT_TIMELOG
 '
   echo "$helptext"
 }
 
-# Development
-logtime-dev-parse() {
+#######################################################################
+#   Development
+#######################################################################
+logtime-report-commits(){
+  cat<<EOF
+<html>
+<head>
+<style>
+html{
+  font-family:tt,courier,monospace;
+}
+h2{
+  margin:0;
+}
+.nom{
+  white-space: pre;
+  margin:0;
+}
+</style>
+</head>
+EOF
+_logtime-commits-to-html
+  cat<<EOF
+</html>
+EOF
+}
+
+_logtime-commits-to-html(){
+  local dir=$LT_DIR/commits 
+  commits=($(ls $dir))
+  for commit in ${commits[@]}; do
+    _logtime-commit-to-html $commit
+ done
+}
+
+_logtime-commit-to-html(){
+    commit=$1
+    local commit_dir="$LT_DIR/commits"
+    local meta_dir="$LT_DIR/meta"
+    # evaluate the stored LT_ARRAY but rename it marks in this shell
+    eval $(cat $commit_dir/$commit | grep LT_MARKS | sed s/LT_MARKS/marks/)
+    if [ -f "$meta_dir/$commit.meta" ]; then
+       echo "Meta file found for $commit" >&2
+       eval $(cat $meta_dir/$commit.meta | grep marks_disposition)
+    else
+       echo "No meta file found for $commit.$meta" >&2
+    fi
+
+    echo "<h2>$commit $(date -d@$commit)</h2>"
+    echo "<div id=\"$commit\" class=\"nom\">"
+      echo -n '<div class="bash-env">'
+      cat $commit_dir/$commit | grep -v LT_MARKS # show below 
+      echo "</div> <!-- bash-env -->"
+      
+      echo -n "<div class='marks'>"
+      for i in "${!marks[@]}"; do
+        printf "%s" "${marks[$i]}"
+        (( pad = 65 - ${#marks[$i]} ))
+        #printf "%${pad}s" "${marks[$i]}"
+        printf "%${pad}s\n" "${marks_disposition[$i]}"
+      done
+      echo "</div> <!-- marks -->"
+
+    echo "</div> <!-- nom -->"
+}
+_logtime-dev-undo-mark(){
+  local mark=("${LT_MARKS[-1]}")              # last element
+  dur=$(_logtime-hms-to-seconds  ${mark[0]})  # compensate for total time
+  LT_LASTMARK=$(($LT_LASTMARK - $dur ))       # roll back when last mark was made
+  unset ${LT_MARKS[-1]}                       # leaves a blank line
+  local x=("${LT_MARKS[@]}")                  # get all non-zero lines
+  LT_MARKS=("$x")                             # create a new array of marks
+}
+
+logtime-dev-commit-undo(){
+  logtime-load $LT_COMMITS/$_LT_LAST_START   # reload from commit
+  LT_STOP=""                                 # by def. must be blank
+  rm $LT_COMMITS/$_LT_LAST_START
+}
+
+# deals with backup files ID.backup
+logtime-dev-delete-state(){
+  if [[ -f "$LT_STATES/$LT_START" ]]; then
+    mv $LT_STATES/$LT_START* "$LT_TRASH"
+    _logtime-clear
+  else
+    echo "State file $LT_START not found." 
+  fi
+}
+
+_logtime-dev-parse() {
   while IFS= read -r line; do  #get the whole line, no IFS
       IFS=.; tokens=($line)    # now IFS is .
       local tsHuman=$(date -d@${tokens[0]} 2> /dev/null) 
@@ -407,20 +419,79 @@ logtime-dev-parse() {
   done < "$LT_TIMELOG" 
   IFS=$' \t\n'
 }
-logtime-dev-parse2() {
-  local tsHuman=""
-  IFSOLD=$IFS
-  while IFS= read -r line; do  #get the whole line, no IFS
-      IFS=' '; tokens=($line)    # now IFS is space 
-      if [[ $tokens[0] > 600000 ]]; then
-        tsHuman=$(date -d@${tokens[0]} 2> /dev/null) 
-      else
-        tsHuman=$(logtime-hms ${tokens[0]} 2> /dev/null) 
-      fi
 
-      IFS=$' \t\n'
-      printf '%s %s \n' "$tsHuman" $line
+_logtime-make-line(){
+  curline="${LT_MARKS[$1]}"
+  (( pad = 65 - ${#curline} ))
+  printf "%3s:$curline%${pad}s %s\n" $i ${marks_disposition[$i]}
+}
 
-  done < "$LT_TIMELOG" 
-  IFS=$' \t\n'
+logtime-edit-marks() {
+  # this function calls itself, advancing index with arrows
+  i=${1-0}
+  len="${#LT_MARKS[@]}"
+  (( i =(i+len)%len )) 
+  escape_char=$(printf "\u1b")
+
+  local metafile="$LT_DIR/meta/$LT_START.meta"
+
+  _logtime-make-line $i
+  read -rsn1 mode # get 1 character
+
+  ################## handle arrows ################################
+  # https://stackoverflow.com/questions/10679188/casing-arrow-keys-in-bash
+  if [[ $mode == $escape_char ]]; then                        
+    #read -rsn2 -p "$curline"  mode # read 2 more chars
+    read -rsn2  mode # read 2 more chars
+  fi 
+  case $mode in
+    #'[A') echo;  logtime-edit-marks $(((i + len +1)%len)) ;;
+    #'[B') echo;  logtime-edit-marks $(((i + len -1)%len)) ;;
+    '[A') echo;  logtime-edit-marks $((i - 1 )) ;;
+    '[B') echo;  logtime-edit-marks $((i + 1 )) ;;
+    *) 
+  esac
+  ################## end of handle arrows #########################
+
+  # toggle p-lan, a-ctive, r-estorative for current line
+  # write marks_disposition ARRAY into 
+  # $LT_DIR/meta/1234.meta
+  if [[ $mode == "p" || $mode == "a" || $mode == "r" ]]; then
+      local curDisp="${marks_disposition[$i]}";
+      [ -z "$curDisp" ] && marks_disposition[$i]=$mode
+      [ ! -z "$curDisp" ] && marks_disposition[$i]=""
+      declare -ap  marks_disposition  > "$metafile"
+      echo ""
+      _logtime-make-line $i
+      echo""
+      logtime-edit-marks $(( i + 1 ))
+  fi
+
+  if [[ $mode == "e" ]]; then
+      echo "Enter new line with time in seconds:"
+      read -i "${LT_MARKS[$i]}" -e line
+      LT_MARKS[$i]="$line"
+      logtime-edit-marks $i
+  fi
+  echo ""
+  logtime-edit-marks $i
+  return; 
+}
+
+temp(){
+  dur=$(_logtime-hms-to-seconds  $1)
+  if [ "$dur" -eq 0 ] # 2>/dev/null  # 0 if not an hms string
+  then
+    dur=$(( $curtime - $LT_LASTMARK ))
+    local msg="${@:1}"
+  else
+    local msg="${@:2}"
+  fi
+}
+
+_logtime-dev-webserver() {
+  while true; do  
+    echo -e "HTTP/1.1 200 OK\r\n$(date)\r\n\r\n$(cat $1)" \
+          | nc -vl 0.0.0.0:8080; 
+  done
 }
