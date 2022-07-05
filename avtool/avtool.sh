@@ -50,7 +50,46 @@ avtool-record-wav() {
          $1$(date +%s).wav 
 }
 
-avtool-record-ogg(){
+avtool-record-asus-monitor(){
+  ffmpeg -s 1920x1080 \
+         -framerate 10 \
+         -f x11grab \
+         -i :0.0+0,0 \
+         -f alsa \
+         -ac 2 \
+         -i pulse \
+         -acodec aac \
+         -strict experimental \
+         $1.flv
+}
+
+#       -f fmt (input/output)
+#           Force input or output file format. The format is normally auto
+#           detected for input files and guessed from the file extension for
+#           output files, so this option is not needed in most cases.
+
+#       -c[:stream_specifier] codec (input/output,per-stream)
+#       -codec[:stream_specifier] codec (input/output,per-stream)
+#           Select an encoder (when used before an output file) or a decoder
+#           (when used before an input file) for one or more streams. codec is
+#           the name of a decoder/encoder or a special value "copy" (output
+#           only) to indicate that the stream is not to be re-encoded.
+
+avtool-record-asus-monitor-opus(){
+  local inputCodec=libopus
+  local bitrate=128K
+  local width=1080 # should get from xrandr
+  local height=720 # should get from xrandr
+  local inputFmt=x11grab
+
+  ffmpeg \
+  -s ${width}x${height} # {} for clarity \ 
+  -f $inputFmt \
+  -c:a  -b:a bitrate 
+}
+
+
+avtool-record-audio(){
   timestamp=$(date +%s)
   ffmpeg -f alsa \
          -ac $channels  \
@@ -61,10 +100,37 @@ avtool-record-ogg(){
          $1$timestamp.ogg
 }
 
-avtool-fifo(){
-  # atool-fifo fifo.{wav,ogg,mkv,avi}
-  ffmpeg \
-         -y \
+avtool-record-mpow(){
+  arecord -c 1 -r 48000 -f S16_LE --device="hw:3,0" 
+}
+
+avtool-play-mono(){
+  local rate=${1:-48000}
+  aplay -c 1 -r 48000 -f S16_LE $1
+}
+avtool-play-stereo(){
+  local rate=${1:-48000}
+  aplay -c 2 -r $rate -f S16_LE $1
+}
+
+# -f cd (16 bit little endian, 44100, stereo) [-f S16_LE -c2 -r44100]
+avtool-record-dat(){
+   arecord -f dat $1
+}
+
+# -f cd (16 bit little endian, 44100, stereo) [-f S16_LE -c2 -r44100]
+avtool-play-dat(){
+   aplay -f dat $1
+}
+
+
+avtool-record-monitor(){
+  #local monSize="1440x900"
+  local monSize="1920x1080"
+  ffmpeg -s $monSize \
+         -framerate 25 \
+         -f x11grab \
+         -i :0.0+1920,0 \
          -f alsa \
          -ac $channels \
          -ar $samplerate \
@@ -123,6 +189,16 @@ avtool-list-all(){
   arecord -l
 }
 
+avtool-record-wav() {
+[ -z $1 ] && input=pulse || input=$1
+[ -z $2 ] && output=$(date +%s) || output=$2
+  echo   ffmpeg \
+         -f alsa \
+         -ac 2 \
+         -i  $input \
+         -acodec wav \
+         $output.wav
+}
 
 avtool-list-screens(){
   avtool-list-all | grep connected
