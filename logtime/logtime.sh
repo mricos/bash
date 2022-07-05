@@ -6,6 +6,7 @@ LT_COMMITS=$LT_DIR/commits
 
 alias mark="logtime-mark"
 alias marks="logtime-marks"
+alias store="logtime-store"
 alias status="logtime-status"
 
 #######################################################################
@@ -46,7 +47,7 @@ _logtime-select-state() {
   _logtime-source "$LT_STATES/${filenames[$filenum]}"
 }
 
-logtime-load-type() {
+_logtime-load-type() {
   local type=${1:-states} 
   _logtime-objects "$LT_DIR/$type" 
   local listing=$(ls -1 "$LT_DIR/$type")
@@ -56,6 +57,10 @@ logtime-load-type() {
   filenum=$((filenum-1))
   _logtime-clear
   _logtime-source "$LT_DIR/$type/${filenames[$filenum]}"
+}
+
+logtime-load(){
+  _logtime-load-type states
 }
 
 _logtime-source(){
@@ -99,6 +104,17 @@ _logtime-elapsed-hms(){
   echo $elapsedHms 
 }
 
+_logtime-set-stop-from-marks(){
+  local total=0
+  for line in "${LT_MARKS[@]}"; do
+    IFS=' ' read left right <<< "$line"
+    (( total+=$left ))
+  done;
+  IFS=$' \t\n'
+ LT_LASTMARK=$(( LT_START + total ))
+ LT_STOP=$(( LT_START + total ))
+}
+
 _logtime-get-startmsg(){
   # sources in temp shell via $()
   echo $(source "$1"; echo "$LT_START_MSG")
@@ -133,8 +149,14 @@ _logtime-stop() {
 #######################################################################
 logtime-prompt(){
   # Logtime's prompt shows how much time since last mark.
-  local msg='$(_logtime-elapsed-hms)> '
-  PS1="$msg"
+  PS1_ORIG="$PS1"
+  PS1_LOGTIME_MSG='$(_logtime-elapsed-hms)'
+  local msg='$(_logtime-elapsed-hms)'
+  PS1="$msg> "
+}
+
+logtime-prompt-reset(){
+  PS1="$PS1_ORIG"
 }
 
 logtime-load-old(){
@@ -160,7 +182,7 @@ logtime-start() {
       local when="now";
       local msg="${@:1}"
     fi
-
+    echo "When is $when"
     # date +%s <-- create UNIX epoch time stamp in seconds
     # date --date=@$TS  <-- create datetime string from TS env var
     LT_START=$(date +%s -d $when)
@@ -209,12 +231,36 @@ logtime-mark() {
   _logtime-save
 }
 
+LT_STACK=()
+logtime-mark-push(){
+  local dur=$(_logtime-hms-to-seconds  $1)
+  local msg="${@:2}"
+  LT_STACK+=("$dur $msg")
+}
+logtime-mark-pop(){
+  local dur=$(_logtime-hms-to-seconds  $1)
+  local msg="${@:2}"
+  echo ${LT_STACK[-1]}
+  unset LT_STACK[-1]
+}
+logtime-mark-stack(){
+  for item in "${LT_STACK[@]}"
+  do
+    echo $item
+  done
+  
+}
+
 logtime-states(){
   _logtime-objects "$LT_STATES" 
 }
 
 logtime-store(){
-  echo "$(date +%s) $1" >> $LT_DIR/store/$LT_START.store
+  echo "$(date +%s) $@" >> $LT_DIR/store/$LT_START.store
+}
+
+logtime-stores(){
+  cat $LT_DIR/store/$LT_START.store
 }
 
 logtime-commits(){
@@ -283,23 +329,52 @@ logtime-status(){
   echo
   echo "  LT_START=$LT_START ($datestr, elapsed:$elapsedHms)"
   echo "  LT_START_MSG=$LT_START_MSG"
-  echo "  LT_STOP=$LT_STOP ($datestr, durration: $dur)"
+  echo "  LT_STOP=$LT_STOP ($datestr, duration: $dur)"
   echo "  LT_COMMIT_MSG=$LT_COMMIT_MSG"
   echo "  Run logtime-marks to see marks for current sequence"
   echo 
 }
 
+logtime-clipboard(){
+  source $LT_DIR/clipboard
+  printf "%s\n" "${lt_clipboard[@]}"
+
+}
 logtime-marks(){
   IFS_ORIG=$IFS
   IFS=$"\n"
+  local total
+  local abstime
+  local n=0
+  local start=${1:-0}
+  local end=${2:-${#LT_MARKS[@]}}
+  lt_clipboard=() 
   for line in "${LT_MARKS[@]}"; do
-     IFS=' ' read left right <<< "$line"
-     local deltatime=$(_logtime-hms $left)
-     printf "%s %s for %s\n" $left "$right" $deltatime
+    IFS=' ' read left right <<< "$line"
+    local hms=$(_logtime-hms $left)
+    (( total+=$left ))
+    (( abstime=(LT_START + total) ))
+    if (( $n >=  "$start"  && $n <= "$end" )); then 
+      printf "%3s %5s %-40s  %9s" $n $left "$right" $hms
+      printf " %s\n" "$(date +"%a %D:%H:%M" -d@$abstime )"
+      lt_clipboard+=("$line")
+    fi 
+    (( n++ ))
   done;
   IFS=$IFS_ORIG
+  printf "        Total seconds:%s (%2.2f days)\n" \
+      $total $(jq -n "$total/(60*60*24)") > /dev/stderr
+  printf "LT_LASTMARK-LT_START: %s (%2.2f days)\n" \
+      $((LT_LASTMARK-LT_START)) $(jq -n "$total/(60*60*24)")  > /dev/stderr
+  echo "End is $end" > /dev/stderr
+  declare -ap lt_clipboard > $LT_DIR/clipboard
 }
 
+logtime-marks-copy(){
+  local start=${1:-0}
+  local end=${2:-${#LT_MARKS[@]}}
+
+}
 logtime-help(){
 helptext='
 Logtime uses Unix date command to create Unix timestamps.
@@ -324,6 +399,8 @@ Commit the list of duration marks: logtime-commit  # writes to $LT_TIMELOG
 #   Development
 #######################################################################
 logtime-report-commits(){
+  toggle="$(_logtime-make-toggle-html )"
+
   cat<<EOF
 <html>
 <head>
@@ -337,7 +414,9 @@ h2{
 .nom{
   white-space: pre;
   margin:0;
+  display:none;
 }
+$toggle
 </style>
 </head>
 EOF
@@ -347,31 +426,109 @@ _logtime-commits-to-html
 EOF
 }
 
+_logtime-make-toggle-html(){
+  cat<<EOF
+.toggle {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  width: 62px;
+  height: 32px;
+  display: inline-block;
+  position: relative;
+  border-radius: 50px;
+  overflow: hidden;
+  outline: none;
+  border: none;
+  cursor: pointer;
+  background-color: #707070;
+  transition: background-color ease 0.3s;
+}
+
+.toggle:before {
+  content: "on off";
+  display: block;
+  position: absolute;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  background: #fff;
+  left: 2px;
+  top: 2px;
+  border-radius: 50%;
+  font: 10px/28px Helvetica;
+  text-transform: uppercase;
+  font-weight: bold;
+  text-indent: -22px;
+  word-spacing: 37px;
+  color: #fff;
+  text-shadow: -1px -1px rgba(0,0,0,0.15);
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  transition: all cubic-bezier(0.3, 1.5, 0.7, 1) 0.3s;
+}
+
+.toggle:checked {
+  background-color: #4CD964;
+}
+
+.toggle:checked:before {
+  left: 32px;
+}
+
+#seeMore1{
+  display: none;
+}
+
+#seeMore{
+  display: none;
+}
+
+#seeMore1:target{
+  display: block;
+}
+EOF
+
+}
+
 _logtime-commits-to-html(){
   local dir=$LT_DIR/commits 
   commits=($(ls $dir))
   for commit in ${commits[@]}; do
     _logtime-commit-to-html $commit
- done
+  done
 }
 
 _logtime-commit-to-html(){
-    commit=$1
+    commitId=$1
     local commit_dir="$LT_DIR/commits"
     local meta_dir="$LT_DIR/meta"
     # evaluate the stored LT_ARRAY but rename it marks in this shell
     eval $(cat $commit_dir/$commit | grep LT_MARKS | sed s/LT_MARKS/marks/)
-    if [ -f "$meta_dir/$commit.meta" ]; then
-       echo "Meta file found for $commit" >&2
-       eval $(cat $meta_dir/$commit.meta | grep marks_disposition)
+    if [ -f "$meta_dir/$commitId.meta" ]; then
+       echo "Meta file found for $commitId" >&2
+       eval $(cat $meta_dir/$commitId.meta | grep marks_disposition)
     else
-       echo "No meta file found for $commit.$meta" >&2
+       echo "No meta file found for $commitId.$meta" >&2
     fi
 
-    echo "<h2>$commit $(date -d@$commit)</h2>"
-    echo "<div id=\"$commit\" class=\"nom\">"
+    cat <<EOF
+<input class="toggle" type="checkbox" />
+<h2 style="display:flex">$commitId $(date -d@$commitId) \
+<a style="text-decoration:none" href='#$commitId'>
+  more
+</a>
+</h2>
+<section  id='seeMore1'class='seeMore' >
+  <p>
+    Here's some more info that you couldn't see before. I can only be seen after you click the "See more!" button.
+  </p>
+</section>
+EOF
+
+    echo "<div id=\"$commitId\" class=\"nom\">"
       echo -n '<div class="bash-env">'
-      cat $commit_dir/$commit | grep -v LT_MARKS # show below 
+      cat $commit_dir/$commitId | grep -v LT_MARKS # show below 
       echo "</div> <!-- bash-env -->"
       
       echo -n "<div class='marks'>"
@@ -385,13 +542,11 @@ _logtime-commit-to-html(){
 
     echo "</div> <!-- nom -->"
 }
-_logtime-dev-undo-mark(){
-  local mark=("${LT_MARKS[-1]}")              # last element
-  dur=$(_logtime-hms-to-seconds  ${mark[0]})  # compensate for total time
-  LT_LASTMARK=$(($LT_LASTMARK - $dur ))       # roll back when last mark was made
-  unset ${LT_MARKS[-1]}                       # leaves a blank line
-  local x=("${LT_MARKS[@]}")                  # get all non-zero lines
-  LT_MARKS=("$x")                             # create a new array of marks
+logtime-mark-undo(){
+  local mark=("${LT_MARKS[-1]}")           # last element
+  IFS=' ' read first rest <<< "$mark"
+  LT_LASTMARK=$(($LT_LASTMARK - $first ))  # roll back when last mark was made
+  unset 'LT_MARKS[-1]'                       # leaves a blank line
 }
 
 logtime-dev-commit-undo(){
