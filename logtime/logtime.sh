@@ -3,6 +3,7 @@
 LT_DIR=~/.logtime
 LT_STATES=$LT_DIR/states
 LT_COMMITS=$LT_DIR/commits
+IFS=$' \t\n'
 
 alias mark="logtime-mark"
 alias marks="logtime-marks"
@@ -12,6 +13,7 @@ alias status="logtime-status"
 #######################################################################
 #  Helper functions start with _ 
 #######################################################################
+
 _logtime-clear(){
   LT_START=""             # set at creation 
   LT_STOP=""              # empty until commit
@@ -30,7 +32,7 @@ _logtime-save(){
     local backup=$LT_DIR/backup/$LT_START.backup
     cp  $outfile $backup # 2> /dev/null # outfile does not exist
     export ${!LT_@}
-    declare -ap  ${!LT_@}  > "$outfile"
+    declare -xp  ${!LT_@}  > "$outfile"
     if [ $? -eq 0 ]; then
       printf '%s\n' "Wrote to $outfile"
     fi
@@ -47,7 +49,15 @@ _logtime-select-state() {
   _logtime-source "$LT_STATES/${filenames[$filenum]}"
 }
 
-_logtime-load-type() {
+logtime-load(){
+  if [[ $# -eq  0 ]]; then
+    _logtime-load-interactive states
+  else 
+    _logtime-source "$1"
+  fi
+}
+
+_logtime-load-interactive(){
   local type=${1:-states} 
   _logtime-objects "$LT_DIR/$type" 
   local listing=$(ls -1 "$LT_DIR/$type")
@@ -57,10 +67,6 @@ _logtime-load-type() {
   filenum=$((filenum-1))
   _logtime-clear
   _logtime-source "$LT_DIR/$type/${filenames[$filenum]}"
-}
-
-logtime-load(){
-  _logtime-load-type states
 }
 
 _logtime-source(){
@@ -171,12 +177,13 @@ logtime-load-old(){
 }
 
 logtime-start() {
+  local when="now";
   if [ ! -z $LT_START ]; then
     echo "LT_START not empty. Use _logtime-clear to clear."
     return -1
   else
     if date -d "$1" &>/dev/null; then  # test, send stdio to /dev/null
-      local when=$1;
+      local when="$1";
       local msg="${@:2}";
     else
       local when="now";
@@ -185,7 +192,7 @@ logtime-start() {
     echo "When is $when"
     # date +%s <-- create UNIX epoch time stamp in seconds
     # date --date=@$TS  <-- create datetime string from TS env var
-    LT_START=$(date +%s -d $when)
+    LT_START=$(date +%s -d "$when" )
     LT_STOP=""
     LT_LASTMARK=$LT_START
     LT_START_MSG="$msg"
@@ -248,7 +255,6 @@ logtime-mark-stack(){
   do
     echo $item
   done
-  
 }
 
 logtime-states(){
@@ -338,8 +344,21 @@ logtime-status(){
 logtime-clipboard(){
   source $LT_DIR/clipboard
   printf "%s\n" "${lt_clipboard[@]}"
-
 }
+
+_logtime-meta-restore(){
+  local metafile="$LT_DIR/meta/$LT_START.meta"
+  echo "Loading: $metafile"
+  #eval "$(cat $metafile)"   # loads marks_disposition array
+  source $metafile
+  echo "Got ${#marks_disposition[@]}"
+}
+
+_logtime-meta-save(){
+  local metafile="$LT_DIR/meta/$LT_START.meta"
+  declare -xp  marks_disposition  > "$metafile"
+}
+
 logtime-marks(){
   IFS_ORIG=$IFS
   IFS=$"\n"
@@ -348,6 +367,7 @@ logtime-marks(){
   local n=0
   local start=${1:-0}
   local end=${2:-${#LT_MARKS[@]}}
+  _logtime-meta-restore
   lt_clipboard=() 
   for line in "${LT_MARKS[@]}"; do
     IFS=' ' read left right <<< "$line"
@@ -355,8 +375,10 @@ logtime-marks(){
     (( total+=$left ))
     (( abstime=(LT_START + total) ))
     if (( $n >=  "$start"  && $n <= "$end" )); then 
-      printf "%3s %5s %-40s  %9s" $n $left "$right" $hms
-      printf " %s\n" "$(date +"%a %D:%H:%M" -d@$abstime )"
+      printf "%3s %5s %-36s  %9s %3s" \
+          $n $left "$right" $hms "${marks_disposition[$n]}"
+      #printf " %s\n" "$(date +"%a %D:%H:%M" -d@$abstime )"
+      printf " %s\n" "$(date +"%a %D %H:%M" -d@$abstime )"
       lt_clipboard+=("$line")
     fi 
     (( n++ ))
@@ -367,7 +389,7 @@ logtime-marks(){
   printf "LT_LASTMARK-LT_START: %s (%2.2f days)\n" \
       $((LT_LASTMARK-LT_START)) $(jq -n "$total/(60*60*24)")  > /dev/stderr
   echo "End is $end" > /dev/stderr
-  declare -ap lt_clipboard > $LT_DIR/clipboard
+  declare -xp lt_clipboard > $LT_DIR/clipboard
 }
 
 logtime-marks-copy(){
@@ -582,58 +604,127 @@ _logtime-dev-parse() {
 _logtime-make-line(){
   curline="${LT_MARKS[$1]}"
   (( pad = 65 - ${#curline} ))
-  printf "%3s:$curline%${pad}s %s\n" $i ${marks_disposition[$i]}
+  printf "%3s:$curline%${pad}s %s\n" $1 ${marks_disposition[$1]}
 }
 
+_logtime-get-marks(){
+  total_len=${#LT_MARKS[@]}
+  i=${1:-0}
+  n=0
+  len=${2:-$total_len}
+
+  while (( n < len )) ; do
+         _logtime-make-line $i  # just prints, no mutation
+         (( n++ )) 
+         (( i =(i+1+total_len)%total_len )) 
+  done
+}
+_logtime-get-marks-2(){
+  total_len=${#LT_MARKS[@]}
+  start=${1:-0}
+  len=${2:-$total_len}
+  local i=0;
+  ((i = start+len   ))
+  while ((  len > -2 )) ; do
+    _logtime-make-line $i  # just prints, no mutation
+    (( len-- )) 
+    (( i =(i-1+total_len)%total_len )) 
+  done
+
+}
 logtime-edit-marks() {
   # this function calls itself, advancing index with arrows
-  i=${1-0}
+  local contentHeight=10
+  _logtime-meta-restore # brings marks_disposition in scope
+  cur=${1-0}
   len="${#LT_MARKS[@]}"
-  (( i =(i+len)%len )) 
-  escape_char=$(printf "\u1b")
+  (( cur =(cur+len)%len )) 
+  (( start = (cur-contentHeight)%len )) 
+  escape_char=$(printf "\u1b") 
+  IFS=$'\n'
+  local content=( $(_logtime-get-marks $start $contentHeight  ))
+ 
+  local footer=($( 
+      printf " \n"
+      printf "%s\n" "$(_logtime-make-line $cur)"
+      printf " \n"
+      printf "plan, active, rest, edit > " 
+      ))
 
-  local metafile="$LT_DIR/meta/$LT_START.meta"
+  IFS=$' \t\n'
+  local headerHeight;
+  (( headerHeight =  LINES - ${#content[@]} - ${#footer[@]} -1 ))
+  local header=("Logtime marks editor  0.1")
+  local n=0; while (( n < $headerHeight )); do header+=(""); (( n++ ));
+  done
 
-  _logtime-make-line $i
-  read -rsn1 mode # get 1 character
+  prompt="$(
+    printf "%s\n" "${header[@]}" 
+    printf "%s\n" "${content[@]}" 
+    printf "%s\n" "${footer[@]}" 
+  )"
+  read -p "$prompt" -rsn1 char    # silently get 1 character in restricted mode
 
   ################## handle arrows ################################
   # https://stackoverflow.com/questions/10679188/casing-arrow-keys-in-bash
-  if [[ $mode == $escape_char ]]; then                        
-    #read -rsn2 -p "$curline"  mode # read 2 more chars
-    read -rsn2  mode # read 2 more chars
+  if [[ $char == $escape_char ]]; then                        
+    read -rsn2 char # read 2 more chars
   fi 
-  case $mode in
-    #'[A') echo;  logtime-edit-marks $(((i + len +1)%len)) ;;
-    #'[B') echo;  logtime-edit-marks $(((i + len -1)%len)) ;;
-    '[A') echo;  logtime-edit-marks $((i - 1 )) ;;
-    '[B') echo;  logtime-edit-marks $((i + 1 )) ;;
+  case $char in
+    '[A') echo; echo;  logtime-edit-marks $((cur - 1 )) ;;
+    '[B') echo; echo;  logtime-edit-marks $((cur + 1 )) ;;
     *) 
   esac
   ################## end of handle arrows #########################
 
-  # toggle p-lan, a-ctive, r-estorative for current line
   # write marks_disposition ARRAY into 
   # $LT_DIR/meta/1234.meta
-  if [[ $mode == "p" || $mode == "a" || $mode == "r" ]]; then
-      local curDisp="${marks_disposition[$i]}";
-      [ -z "$curDisp" ] && marks_disposition[$i]=$mode
-      [ ! -z "$curDisp" ] && marks_disposition[$i]=""
-      declare -ap  marks_disposition  > "$metafile"
+
+
+  # Should be a case statement off of $char
+  if [[ $char != "e" && $char != "" ]]; then
+
+      read -r -p "$char" line   # continue typing
+
+      local curDisp="${marks_disposition[$cur]}";
+      [ -z "$curDisp" ] && marks_disposition[$cur]="$char$line"
+      [ ! -z "$curDisp" ] && marks_disposition[$cur]=""
+      _logtime-meta-save
+
+      _logtime-make-line $cur  # just prints, no mutation
       echo ""
-      _logtime-make-line $i
-      echo""
-      logtime-edit-marks $(( i + 1 ))
+      logtime-edit-marks $(( cur + 1 ))
   fi
 
-  if [[ $mode == "e" ]]; then
-      echo "Enter new line with time in seconds:"
-      read -i "${LT_MARKS[$i]}" -e line
-      LT_MARKS[$i]="$line"
-      logtime-edit-marks $i
+  local isFirstInt='^[0-9]*[1-9][0-9]*$'
+  if [[ $char == "e" ]]; then
+      printf " \n \n"
+      read  -i "${LT_MARKS[$cur]}" -e line
+      local tokens=($line)
+      local delta=${tokens[0]}
+      if  [[ "$delta" =~ $isFirstInt &&  "$delta" == "$delta" ]]; then
+          sec=$delta
+          echo "FOUND NUMBER"
+      else
+          sec="$(_logtime-hms-to-seconds $delta)"
+          echo "FOUND HMS $delta to $sec"
+      fi
+
+      IFS=' ' read left right <<< "$line"
+      local newline="$sec $right"
+      echo "Line: $line"
+      echo "newline: $newline"
+      
+      IFS=$' \t\n'
+      LT_MARKS[$cur]="$newline"
+
+      logtime-edit-marks $cur
   fi
-  echo ""
-  logtime-edit-marks $i
+
+  # if first char blank return
+  if [[ $char == "" ]]; then
+    logtime-edit-marks $(( cur + 1 ))
+  fi
   return; 
 }
 
