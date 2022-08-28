@@ -55,6 +55,7 @@ logtime-load(){
   else 
     _logtime-source "$1"
   fi
+  logtime-prompt
 }
 
 _logtime-load-interactive(){
