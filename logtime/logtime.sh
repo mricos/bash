@@ -1,5 +1,6 @@
 #!/bin/bash
 
+LT_MAX_MARKS=32000
 LT_DIR=~/.logtime
 LT_STATES=$LT_DIR/states
 LT_COMMITS=$LT_DIR/commits
@@ -7,6 +8,13 @@ IFS=$' \t\n'
 
 alias mark="logtime-mark"
 alias marks="logtime-marks"
+alias ltcat="logtime-marks-cat"
+alias filter="logtime-marks-filter"
+alias push="logtime-push"
+alias pop="logtime-pop"
+alias popall="logtime-pop $LT_MAX_MARKS"
+alias stack="logtime-peek-stack"
+
 alias store="logtime-store"
 alias status="logtime-status"
 
@@ -211,12 +219,13 @@ logtime-start() {
 # 3600 This is second mark string   for 1h
 # 1800 This thrid task lasted 0h30m0s
 # 9003 marktime_total 
+
 logtime-mark() {
   [ ! -z "$LT_STOP" ] && echo "protected" && return 
   local curtime=$(date +%s)
   dur=0
   dur=$(_logtime-hms-to-seconds  $1)
-  if [ "$dur" -eq 0 ] # 2>/dev/null  # 0 if not an hms string
+  if [ "$dur" -eq 0 ]                   # 0 if not an hms string
   then
     dur=$(( $curtime - $LT_LASTMARK ))
     local msg="${@:1}"
@@ -227,34 +236,114 @@ logtime-mark() {
   # If the user adds a duration and it is less than 
   # (curtime - LT_LASTMARK) then add the user's duration
   # to LASTMARK. Otherwise LASTMARK=currentTime.
-  #
+
   # Rather than conditional else, do it in two lines like this:
   local lastmark=$LT_LASTMARK
   (( dur < curtime - lastmark )) &&  LT_LASTMARK=$((LT_LASTMARK + dur));
   (( dur >= curtime - lastmark )) && LT_LASTMARK=$curtime;
   IFS_ORIG=$IFS
   IFS=$'\n'  
-  LT_MARKS+=("$dur $msg")    # array created on newline boundaries
+  LT_MARKS+=("$dur $msg")              # array created on newline boundaries
   IFS=$IFS_ORIG
   _logtime-save
 }
 
+logtime-overwrite(){
+  unset LT_MARKS
+  logtime-append $1
+}
+
+logtime-append(){
+  local src=$1
+  while read line                # read parses on \n comming from < $src
+  do
+    LT_MARKS+=( "$line" );
+    printf "pushed to LT_MARKS: %s\n" "$line"
+  done < $src
+}
+
+logtime-rebase(){
+  local total=0
+  LT_LASTMARK=$LT_START
+  for line in "${LT_MARKS[@]}"; do
+    dur="${line%% *}"                 # substring removal
+    echo "$dur $line"                 # first token is duration in seconds
+    ((total+=$dur))
+  done
+  (( LT_LASTMARK = LT_START + total ))
+  printf "        Total seconds:%s (%2.2f days)\n" \
+      $total $(jq -n "$total/(60*60*24)") > /dev/stderr
+  printf "LT_LASTMARK-LT_START: %s (%2.2f days)\n" \
+      $((LT_LASTMARK-LT_START)) $(jq -n "$total/(60*60*24)")  > /dev/stderr
+}
+
+logtime-append-2(){
+  $dur=$1                              # first cli arg is duration in seconds
+  msg="${@:2}"                         # all cli args after first token
+  LT_MARKS+=("$dur $msg");
+
+}
+
+
 LT_STACK=()
-logtime-mark-push(){
+logtime-push-hms(){
   local dur=$(_logtime-hms-to-seconds  $1)
   local msg="${@:2}"
   LT_STACK+=("$dur $msg")
 }
-logtime-mark-pop(){
-  local dur=$(_logtime-hms-to-seconds  $1)
-  local msg="${@:2}"
-  echo ${LT_STACK[-1]}
-  unset LT_STACK[-1]
+
+logtime-pop(){
+  local N=${1:-1}                  # pop 10 will return 
+  local n=0
+  source $LT_DIR/stack             #ssot-write: single source of truth
+
+  while (( n < N )) ; do
+    (( n++ )) 
+    [ ! -z "$LT_STACK" ] \
+        && echo "${LT_STACK[-1]}" \
+        2> /dev/null;
+    [ ! -z "$LT_STACK" ] \
+        && unset LT_STACK[-1] 2> /dev/null;
+  done
+
+  declare -xp  LT_STACK  > \
+      $LT_DIR/stack                #ssot-read:stack 
+
+  [ -z "$LT_STACK" ] \
+      && { echo "empty stack"; return -1; }
 }
-logtime-mark-stack(){
-  for item in "${LT_STACK[@]}"
-  do
-    echo $item
+
+# Push to the one and only stack. Each operation writes
+# to disk so that te stack is shared globally. #SharpTools
+logtime-push(){
+  local msg="${@}"                 # assume arguments are a string to push
+  local src="/dev/stdin"           # is set to null if args are passed
+  source $LT_DIR/stack             # Single source of truth is disk
+
+  if [ ! -z "$msg" ]               # if not unset or empty string 
+  then                             # then we we will all command line string
+    LT_STACK+=("$msg");
+    declare -xp  LT_STACK  > \
+                 $LT_DIR/stack     # write sigle source of truth
+    src=/dev/null                  # this will short circuit read on stdin
+    return 0
+  else                             # else push lines from stdin
+    while read line                # read parses on \n comming from < $src
+    do
+      LT_STACK+=( "$line" );
+      printf "pushed: %s\n" "$line"
+    done < "$src"
+  
+    #export LT_STACK
+    declare -xp  LT_STACK  > $LT_DIR/stack
+  fi
+}
+
+
+logtime-peek-stack(){
+  source $LT_DIR/stack
+  for line in "${LT_STACK[@]}"; do
+    echo "$line"
   done
 }
 
@@ -300,13 +389,17 @@ logtime-commit(){
   local datestop=$(date --date=@$LT_STOP)
   local deltaSeconds=$(($LT_STOP - $LT_START))
 
+  local totalMarks=0
+  ((totalMarks = LT_LASTMARK-LT_START))
+  echo "Total marks:"  $(jq -n "$totalMarks/(60*60*24)")
+
   local duration=$(_logtime-hms $deltaSeconds )
   printf 'logtime-marks: \n'
   logtime-marks
   printf '%s\n' "Start message: $LT_START_MSG"
   printf 'Date start: %s\n'  "$datestart" 
   printf 'Date stop: %s\n'  "$datestop" 
-  printf '%s %s\n' "Duration:" $duration
+  printf '%s %s\n' "Open duration:" $duration
   printf '%s\n' "Commit msg: $commitmsg"
   printf 'Commit? ctrl-c to cancel, return to continue\n'
   read ynCommit
@@ -349,10 +442,10 @@ logtime-clipboard(){
 
 _logtime-meta-restore(){
   local metafile="$LT_DIR/meta/$LT_START.meta"
-  echo "Loading: $metafile"
+  echo "Loading: $metafile" >&2
   #eval "$(cat $metafile)"   # loads marks_disposition array
-  source $metafile
-  echo "Got ${#marks_disposition[@]}"
+  source $metafile >&2
+  echo "Got ${#marks_disposition[@]}" >&2
 }
 
 _logtime-meta-save(){
@@ -360,11 +453,21 @@ _logtime-meta-save(){
   declare -xp  marks_disposition  > "$metafile"
 }
 
+logtime-marks-cat(){
+  IFS_ORIG=$IFS
+  IFS=$"\n"
+  local n=0;
+  for line in "${LT_MARKS[@]}"; do
+    printf "$line\n"
+    (( n++ ))
+  done;
+  IFS=$IFS_ORIG 
+}
 logtime-marks(){
   IFS_ORIG=$IFS
   IFS=$"\n"
-  local total
-  local abstime
+  local total=0
+  local abstime=0
   local n=0
   local start=${1:-0}
   local end=${2:-${#LT_MARKS[@]}}
@@ -373,24 +476,28 @@ logtime-marks(){
   for line in "${LT_MARKS[@]}"; do
     IFS=' ' read left right <<< "$line"
     local hms=$(_logtime-hms $left)
-    (( total+=$left ))
     (( abstime=(LT_START + total) ))
     if (( $n >=  "$start"  && $n <= "$end" )); then 
       printf "%3s %5s %-36s  %9s %3s" \
-          $n $left "$right" $hms "${marks_disposition[$n]}"
-      #printf " %s\n" "$(date +"%a %D:%H:%M" -d@$abstime )"
-      printf " %s\n" "$(date +"%a %D %H:%M" -d@$abstime )"
+          $n $left "$right" $hms "${marks_disposition[$n]}" 
+      printf " %s\n" "$(date +"%a %D %H:%M" -d@$abstime )" 
       lt_clipboard+=("$line")
     fi 
+    (( total+=$left ))
     (( n++ ))
   done;
   IFS=$IFS_ORIG
   printf "        Total seconds:%s (%2.2f days)\n" \
-      $total $(jq -n "$total/(60*60*24)") > /dev/stderr
+      $total $(jq -n "$total/(60*60*24)")
   printf "LT_LASTMARK-LT_START: %s (%2.2f days)\n" \
-      $((LT_LASTMARK-LT_START)) $(jq -n "$total/(60*60*24)")  > /dev/stderr
-  echo "End is $end" > /dev/stderr
+      $((LT_LASTMARK-LT_START)) $(jq -n "$total/(60*60*24)")
   declare -xp lt_clipboard > $LT_DIR/clipboard
+}
+
+logtime-marks-filter(){
+  start=${1:-0}
+  end=${2:-$LT_MAX_MARKS} # max records is about 32K
+  awk "NR > $start && NR <= $end"
 }
 
 logtime-marks-copy(){
@@ -615,9 +722,9 @@ _logtime-get-marks(){
   len=${2:-$total_len}
 
   while (( n < len )) ; do
-         _logtime-make-line $i  # just prints, no mutation
-         (( n++ )) 
-         (( i =(i+1+total_len)%total_len )) 
+    _logtime-make-line $i  # just prints, no mutation
+    (( n++ )) 
+    (( i =(i+1+total_len)%total_len )) 
   done
 }
 _logtime-get-marks-2(){

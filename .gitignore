@@ -16,4 +16,4 @@ slides/config/configstore/update-notifier-npm.json
 *.mkv
 *.wav
 *.ogg
-
+.backup
