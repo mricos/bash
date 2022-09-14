@@ -853,3 +853,13 @@ _logtime-dev-webserver() {
           | nc -vl 0.0.0.0:8080; 
   done
 }
+
+#marks_disposition=()
+test-load(){
+  file="$LT_DIR/meta/$LT_START.meta"
+  echo "sorcing $file"
+  #source "$file"
+  #eval "$( cat $file | grep marks_disposition )"
+  _logtime-meta-restore
+  echo "marks_disposition[0]: " "${marks_disposition[0]}"
+}
