@@ -14,6 +14,7 @@ alias push="logtime-push"
 alias pop="logtime-pop"
 alias popall="logtime-pop $LT_MAX_MARKS"
 alias stack="logtime-peek-stack"
+alias mark-undo="logtime-mark-undo"
 
 alias store="logtime-store"
 alias status="logtime-status"
