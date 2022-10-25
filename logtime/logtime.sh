@@ -48,6 +48,15 @@ _logtime-save(){
   fi
 }
 
+logtime-load-commit(){
+  if [[ $# -eq  0 ]]; then
+    _logtime-load-interactive commits 
+  else 
+    _logtime-source "$1"
+  fi
+  logtime-prompt              # changes PS1 to show elapsed time
+}
+
 
 logtime-load(){
   if [[ $# -eq  0 ]]; then
@@ -55,7 +64,6 @@ logtime-load(){
   else 
     _logtime-source "$1"
   fi
-
   logtime-prompt              # changes PS1 to show elapsed time
 }
 
@@ -166,6 +174,14 @@ logtime-prompt(){
 
 logtime-prompt-reset(){
   PS1="$PS1_ORIG"
+}
+
+logtime-restart(){
+    LT_START=$(date +%s -d "$1" )
+    LT_LASTMARK=$LT_START
+    LT_STOP=""
+    LT_MSG="$msg"
+
 }
 
 logtime-start() {
@@ -460,7 +476,7 @@ _logtime-meta-restore(){
   echo "Loading: $metafile" >&2
   #eval "$(cat $metafile)"   # loads marks_disposition array
   source $metafile >&2
-  echo "Got ${#marks_disposition[@]}" >&2
+  #echo "Got ${#marks_disposition[@]}" >&2
 }
 
 _logtime-meta-save(){
@@ -478,6 +494,7 @@ logtime-marks-cat(){
   done;
   IFS=$IFS_ORIG 
 }
+
 logtime-marks(){
   IFS_ORIG=$IFS
   IFS=$"\n"
@@ -494,13 +511,15 @@ logtime-marks(){
     (( abstime=(LT_START + total) ))
     if (( $n >=  "$start"  && $n <= "$end" )); then 
       printf "%3s %5s %-36s  %9s %3s" \
-          $n $left "$right" $hms "${marks_disposition[$n]}" 
-      printf " %s\n" "$(date +"%a %D %H:%M" -d@$abstime )" 
+          $n $left "$right" $hms "${marks_disposition[$n]}"
+      printf " %s\n" "$(date +"%a %D %H:%M" -d@$abstime )"
       lt_clipboard+=("$line")
-    fi 
+    fi
     (( total+=$left ))
     (( n++ ))
   done;
+  (( abstime=(LT_START + total) ))
+  printf "%59s %20s \n" " " "$( date +"%a %D %H:%M" -d@$abstime )" 
   IFS=$IFS_ORIG
   printf "        Total seconds:%s (%2.2f days)\n" \
       $total $(jq -n "$total/(60*60*24)")
@@ -509,6 +528,14 @@ logtime-marks(){
   declare -xp lt_clipboard > $LT_DIR/clipboard
 }
 
+logtime-summary(){
+  local filter=${1:-"1"} # do nothing, all files have a 1 in them!
+  local totalsec="$( logtime-marks  | \
+      grep $filter    | \
+      awk '{s+=$2} END {print s}' \
+  )"
+    echo $(( totalsec / 3600 )) hours for $filter
+}
 logtime-marks-filter(){
   start=${1:-0}
   end=${2:-$LT_MAX_MARKS} # max records is about 32K
