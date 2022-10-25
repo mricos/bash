@@ -33,11 +33,13 @@ function resetVars(){
     # 8 summands per sample 
     binsXaxis=(0 0 0 0 0 0 0 0)
     binsEx=(1 7 21 35 35 21 7 1 ) # sum=128, expect 35
+
     for (( n=0;n<numBins;n++ )); do
         (( binsXaxis[n]=(n+1)*(1<<8)  ))
     done
+
     M=()
-    screen=()
+    screen=()  # build text as array of strings in screen
 }
 
 [ -z "$1" ] && resetVars
@@ -82,13 +84,43 @@ binValue(){
   ((bins[n]=bins[n] + 1 ))
 }
 
+sampleSummary(){
+
+  screenToMatrix     # creates $M = 8 lines of 8 bit-chars
+  totalOnesByColInM
+
+  colError=()
+  for ((c=0;c<numCols;c++)); do
+    ((expectedColVals[c] = curSample * numCols/2)) # uniform distribution
+  done
+
+  for ((c=0;c<numCols;c++)); do
+    ((colError[c] = colTotals[c] - expectedColVals[c] ))
+  done
+
+  colSqError=()
+  for ((c=0;c<numCols;c++)); do
+    ((colSqError[c] =  (colError[c])**2 ))
+  done
+
+  colVar=0
+  for ((c=0;c<numCols;c++)); do
+    ((colVar = (colVar + colSqError[c])  ))
+  done
+  (( colVar/=numCols))
+}
+
+
+
+#######################################################
+# Program starts here.
+#######################################################
+clear
 totalVal=${2:-$totalVal}
-spf=.1
+spf=.1 # seconds per frame
 numOfFrames=8
 time=$(date +%s%N)
-curline=$frame
-
-#export screen
+curline=$frame  # frame number
 
 # Record event of current sample
 #-vAn -> supress index
@@ -119,36 +151,6 @@ start=$((screenline+1))
 for ((i=$start;i<$n;i++)); do
   screen[$i]="$(printf "\n" )"
 done
-
-
-sampleSummary(){
-
-  screenToMatrix     # creates $M = 8 lines of 8 bit-chars
-  totalOnesByColInM
-
-  colError=()
-  for ((c=0;c<numCols;c++)); do
-    ((expectedColVals[c] = curSample * numCols/2)) # uniform distribution
-  done
-
-  for ((c=0;c<numCols;c++)); do
-    ((colError[c] = colTotals[c] - expectedColVals[c] ))
-  done
-
-  colSqError=()
-  for ((c=0;c<numCols;c++)); do
-    ((colSqError[c] =  (colError[c])**2 ))
-  done
-
-  colVar=0
-  for ((c=0;c<numCols;c++)); do
-    ((colVar = (colVar + colSqError[c])  ))
-  done
-  (( colVar/=numCols))
-}
-
-clear
-
 
 if [[ "$frame" == "7" ]];  then
   sampleSummary
