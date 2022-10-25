@@ -25,8 +25,7 @@ alias status="logtime-status"
 _logtime-clear(){
   LT_START=""             # set at creation 
   LT_STOP=""              # empty until commit
-  LT_START_MSG=""         # set at creation
-  LT_COMMIT_MSG=""        # empty until commit
+  LT_MSG=""               # set at creation
   LT_LASTMARK=$(date +%s) # timestamp
   LT_MARKS=()             # array of strings; duration in seconds
   LT_META=""              # filename of corresponding meta data 
@@ -38,7 +37,9 @@ _logtime-save(){
   else
     local outfile=$LT_DIR/states/$LT_START
     local backup=$LT_DIR/backup/$LT_START.backup
-    cp  $outfile $backup # 2> /dev/null # outfile does not exist
+    if [ -f "$outfile" ]; then            # first time outfile does not exist
+      cp  $outfile $backup                # otherwise overwrite the backup
+    fi
     export ${!LT_@}
     declare -xp  ${!LT_@}  > "$outfile"
     if [ $? -eq 0 ]; then
@@ -47,15 +48,6 @@ _logtime-save(){
   fi
 }
 
-_logtime-select-state() {
-  _logtime-objects "$LT_STATES" 
-  local listing=$(ls -1 "$LT_STATES")
-  local filenames=""
-  readarray -t filenames <<< "$listing";
-  read -p "Select state to load:" filenum 
-  filenum=$((filenum-1))
-  _logtime-source "$LT_STATES/${filenames[$filenum]}"
-}
 
 logtime-load(){
   if [[ $# -eq  0 ]]; then
@@ -63,7 +55,8 @@ logtime-load(){
   else 
     _logtime-source "$1"
   fi
-  logtime-prompt
+
+  logtime-prompt              # changes PS1 to show elapsed time
 }
 
 _logtime-load-interactive(){
@@ -72,7 +65,7 @@ _logtime-load-interactive(){
   local listing=$(ls -1 "$LT_DIR/$type")
   local filenames=""
   readarray -t filenames <<< "$listing";
-  read -p "Select $type to load:" filenum 
+  read -p "Select $type to load: " filenum 
   filenum=$((filenum-1))
   _logtime-clear
   _logtime-source "$LT_DIR/$type/${filenames[$filenum]}"
@@ -92,7 +85,6 @@ _logtime-source(){
     fi
   done < "$1"
   export ${!LT_@}
-  logtime-status
 }
 
 _logtime-hms(){
@@ -132,7 +124,10 @@ _logtime-set-stop-from-marks(){
 
 _logtime-get-startmsg(){
   # sources in temp shell via $()
-  echo $(source "$1"; echo "$LT_START_MSG")
+  LT_START_MSG=""
+  LT_MSG=""
+  _logtime-source "$1";
+  echo "$LT_MSG$LT_START_MSG"
 }
 
 _logtime-objects() {
@@ -140,11 +135,10 @@ _logtime-objects() {
   local listing=$(ls -1 "$dir")
   local filenames=""
   readarray -t filenames <<< "$listing";
-  for i in "${!filenames[@]}"  #0 indexing ${!varname[@]} returns indices
+ for i in "${!filenames[@]}"  #0 indexing ${!varname[@]} returns indices
   do
-    #local msg=$(source "$dir/${filenames[$i]}"; echo "$LT_START_MSG")  
     local msg=$(_logtime-get-startmsg "$dir/${filenames[$i]}")  
-    echo "$((i+1)))  ${filenames[$i]}: $msg"
+    echo "$((i+1))) ${filenames[$i]}: $msg"
   done
 }
 
@@ -174,17 +168,6 @@ logtime-prompt-reset(){
   PS1="$PS1_ORIG"
 }
 
-logtime-load-old(){
-   if [ -z $1 ]              # if first arg does not exist 
-     then
-       echo "Select state: # filename of corresponding meta data"
-       _logtime-select-state
-      else
-       _logtime-clear        # zeros out all local bash variables LT_*
-       _logtime-source $1    # reads in declare statements to set LT_ vars
-  fi 
-}
-
 logtime-start() {
   local when="now";
   if [ ! -z $LT_START ]; then
@@ -198,17 +181,36 @@ logtime-start() {
       local when="now";
       local msg="${@:1}"
     fi
-    echo "When is $when"
+    echo "When is $when and msg is $LT_MSG"
     # date +%s <-- create UNIX epoch time stamp in seconds
     # date --date=@$TS  <-- create datetime string from TS env var
     LT_START=$(date +%s -d "$when" )
-    LT_STOP=""
     LT_LASTMARK=$LT_START
-    LT_START_MSG="$msg"
+    LT_STOP=""
+    LT_MSG="$msg"
   fi
     _logtime-save
-    echo "$LT_START: $LT_START_MSG"
-    echo "Now type logtime-mark <+/- offeset> notes about this time mark"
+    cat <<EOF
+
+Now type lines like:
+
+  logtime-mark 1h20m researched edgar codd
+  logtime-mark 0h20m break, stretch
+  logtime-mark  2h20m testing framework
+
+  logtime-store "https://en.wikipedia.org/wiki/Edgar_F._Codd"
+
+And 
+
+  logtime-marks     # show all marks for current sequence
+  logtime-meta      # show meta for current sequence
+  logtime-stores    # show all stores for current sequence
+  logtime-status    # info about the sequence
+  logtime-commit    # move from live states to commit status in db 
+  logtime-load      # load from a list of live states
+  logtime-report    # generates html for all commits
+
+EOF
 }
 
 # Marks define a length of time if no length is given in hms, then:
@@ -348,7 +350,12 @@ logtime-peek-stack(){
 }
 
 logtime-states(){
-  _logtime-objects "$LT_STATES" 
+  _logtime-objects "$LT_STATES"
+  lts=()
+  for file in $(ls "$LT_DIR/states")
+  do
+      lts+=("$LT_DIR/states/$file")
+  done
 }
 
 logtime-store(){
@@ -360,12 +367,21 @@ logtime-stores(){
 }
 
 logtime-commits(){
-  _logtime-objects "$LT_COMMITS"
-#  for commit in $(ls $LT_COMMITS)
-#  do
-#    printf "%s %s\n" "$commit" "$(date --date="@$commit")"
-#    printf "  %s\n" "$commit" "$(date --date="@$commit")"
-#  done
+
+   local lt_msg="$LT_MSG"
+  _logtime-objects "$LT_DIR/commits"     # displays them
+  ltc=()
+  for file in $(ls "$LT_DIR/commits")    # create array of them
+  do
+      ltc+=("$LT_DIR/commits/$file")
+  done
+
+  #for commit in $(ls $LT_DIR/commits)
+  #do
+  #  printf "%s %s\n" "$commit" "$(date --date="@$commit")"
+  #done
+
+  LT_MSG="$lt_msg"
 }
 
 logtime-commit(){
@@ -377,7 +393,7 @@ logtime-commit(){
   if [ -z $1 ] # if there is one or more arguments, treat it as string
   then
     #echo "LT_STOP is empty. Use logtime-stop [offset] [message]."
-    commitmsg="Committed $LT_START_MSG at $LT_STOP"
+    commitmsg="Committed $LT_MSG at $LT_STOP"
   else
     local commitmsg="${@:1}"
   fi 
@@ -396,7 +412,7 @@ logtime-commit(){
   local duration=$(_logtime-hms $deltaSeconds )
   printf 'logtime-marks: \n'
   logtime-marks
-  printf '%s\n' "Start message: $LT_START_MSG"
+  printf '%s\n' "Message: $LT_MSG"
   printf 'Date start: %s\n'  "$datestart" 
   printf 'Date stop: %s\n'  "$datestop" 
   printf '%s %s\n' "Open duration:" $duration
@@ -428,9 +444,8 @@ logtime-status(){
   local datestr=$(date --date="@$LT_START")
   echo
   echo "  LT_START=$LT_START ($datestr, elapsed:$elapsedHms)"
-  echo "  LT_START_MSG=$LT_START_MSG"
+  echo "  LT_MSG=$LT_MSG"
   echo "  LT_STOP=$LT_STOP ($datestr, duration: $dur)"
-  echo "  LT_COMMIT_MSG=$LT_COMMIT_MSG"
   echo "  Run logtime-marks to see marks for current sequence"
   echo 
 }
