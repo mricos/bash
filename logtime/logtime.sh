@@ -239,19 +239,29 @@ EOF
 # 1800 This thrid task lasted 0h30m0s
 # 9003 marktime_total 
 
+test-mark(){
+  [[ $@ =~ "till" ]] && echo ${@#"till"} 
+}
 logtime-mark() {
   [ ! -z "$LT_STOP" ] && echo "protected" && return 
   local curtime=$(date +%s)
   dur=0
   dur=$(_logtime-hms-to-seconds  $1)
-  if [ "$dur" -eq 0 ]                   # 0 if not an hms string
+  if [ "$dur" -eq 0 ]                     # 0 if not an hms string
   then
-    dur=$(( $curtime - $LT_LASTMARK ))
+    if [[ $@ =~ "till" ]]; then           # e.g. sleep till 9am
+      local r=($@)                        # make array of cli tokens 
+      local until=$(date +%s -d ${r[-1]}) # last one is a human time string 
+      dur=$(( $until - $LT_LASTMARK ))
+      echo "LT_LASTMARK: $LT_LASTMARK"
+      echo "curtime-lastmark: $(( curtime-LT_LASTMARK ))"
+      echo "Found till, until: $until, dur: $dur curtime: $curtime"
+      echo "math: $(( dur < curtime - lastmark ))"
+    fi
     local msg="${@:1}"
   else
     local msg="${@:2}"
   fi
-
   # If the user adds a duration and it is less than 
   # (curtime - LT_LASTMARK) then add the user's duration
   # to LASTMARK. Otherwise LASTMARK=currentTime.
