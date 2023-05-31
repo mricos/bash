@@ -8,12 +8,12 @@ IFS=$' \t\n'
 
 alias mark="logtime-mark"
 alias marks="logtime-marks"
-alias ltcat="logtime-marks-cat"
+alias marksraw="logtime-marks-raw"
 alias filter="logtime-marks-filter"
-alias push="logtime-push"
-alias pop="logtime-pop"
-alias popall="logtime-pop $LT_MAX_MARKS"
-alias stack="logtime-peek-stack"
+alias push="logtime-stack-push"
+alias pop="logtime-stack-pop"
+alias popall="logtime-stack-pop $LT_MAX_MARKS"
+alias stack="logtime-stack-peek"
 alias mark-undo="logtime-mark-undo"
 
 alias store="logtime-store"
@@ -29,7 +29,16 @@ _logtime-clear(){
   LT_MSG=""               # set at creation
   LT_LASTMARK=$(date +%s) # timestamp
   LT_MARKS=()             # array of strings; duration in seconds
-  LT_META=""              # filename of corresponding meta data 
+}
+
+_logtime-append(){
+  # 7200 summary text
+  local src=$1
+  while read line
+  do
+    LT_MARKS+=( "$line" );
+    # printf "pushed to LT_MARKS: %s\n" "$line"
+  done < $src
 }
 
 _logtime-delete(){
@@ -281,19 +290,23 @@ logtime-mark() {
   _logtime-save
 }
 
-logtime-overwrite(){
-  unset LT_MARKS
-  logtime-append $1
+logtime-mark-stdin(){
+  # 2h34m cleaned the office 
+  while IFS= read -r line
+  do
+    logtime-mark "$line"
+  done
+  #_logtime-save
+}
+logtime-mark-raw-stdin(){
+  # 7200 some string to the end of line
+  while IFS= read -r line
+  do
+    _logtime-append "$line"
+  done
 }
 
-logtime-append(){
-  local src=$1
-  while read line                # read parses on \n comming from < $src
-  do
-    LT_MARKS+=( "$line" );
-    printf "pushed to LT_MARKS: %s\n" "$line"
-  done < $src
-}
+
 
 logtime-rebase(){
   local total=0
@@ -310,23 +323,15 @@ logtime-rebase(){
       $((LT_LASTMARK-LT_START)) $(jq -n "$total/(60*60*24)")  > /dev/stderr
 }
 
-logtime-append-2(){
-  $dur=$1                              # first cli arg is duration in seconds
-  msg="${@:2}"                         # all cli args after first token
-  LT_MARKS+=("$dur $msg");
-
-}
-
-
 LT_STACK=()
-logtime-push-hms(){
+logtime-stack-push-hms(){
   local dur=$(_logtime-hms-to-seconds  $1)
   local msg="${@:2}"
   LT_STACK+=("$dur $msg")
 }
 
-logtime-pop(){
-  local N=${1:-1}                  # pop 10 will return 
+logtime-stack-pop(){
+  local N=${1:-1}                  # default N=1, pop and echo N elements
   local n=0
   source $LT_DIR/stack             #ssot-write: single source of truth
 
@@ -347,8 +352,8 @@ logtime-pop(){
 }
 
 # Push to the one and only stack. Each operation writes
-# to disk so that te stack is shared globally. #SharpTools
-logtime-push(){
+# to disk so that the stack is shared globally. #sharptool
+logtime-stack-push(){
   local msg="${@}"                 # assume arguments are a string to push
   local src="/dev/stdin"           # is set to null if args are passed
   source $LT_DIR/stack             # Single source of truth is disk
@@ -373,7 +378,7 @@ logtime-push(){
 }
 
 
-logtime-peek-stack(){
+logtime-stack-peek(){
   source $LT_DIR/stack
   for line in "${LT_STACK[@]}"; do
     echo "$line"
@@ -488,9 +493,15 @@ logtime-clipboard(){
 
 _logtime-meta-restore(){
   local metafile="$LT_DIR/meta/$LT_START.meta"
-  echo "Loading: $metafile" >&2
-  #eval "$(cat $metafile)"   # loads marks_disposition array
-  source $metafile >&2
+  if [ -f "$metafile" ]
+  then
+     echo "Using: $metafile"
+     #eval "$(cat $metafile)"   # loads marks_disposition array
+     source $metafile >&2
+  else
+     echo "File not found: $metafile" > /dev/null
+  fi
+
   #echo "Got ${#marks_disposition[@]}" >&2
 }
 
@@ -499,7 +510,7 @@ _logtime-meta-save(){
   declare -xp  marks_disposition  > "$metafile"
 }
 
-logtime-marks-cat(){
+logtime-marks-raw(){
   IFS_ORIG=$IFS
   IFS=$"\n"
   local n=0;
@@ -508,6 +519,15 @@ logtime-marks-cat(){
     (( n++ ))
   done;
   IFS=$IFS_ORIG 
+}
+
+logtime-marks-filter () 
+{ 
+    start=${1:-0};
+    end=${2:-$LT_MAX_MARKS};
+    (( start++ ))
+    (( end++ ))
+    awk "NR <= $end && NR >= $start"
 }
 
 logtime-marks(){
@@ -543,6 +563,12 @@ logtime-marks(){
   declare -xp lt_clipboard > $LT_DIR/clipboard
 }
 
+logtime-marks-reload(){
+  [ -f $LT_DIR/states/$LT_START ] && \
+    echo logtime-load $LT_DIR/states/$LT_START
+  [ ! -f $LT_DIR/states/$LT_START ] && \
+    echo NOT FOUND:  $LT_DIR/states/$LT_START
+}
 logtime-summary(){
   local filter=${1:-"1"} # do nothing, all files have a 1 in them!
   local totalsec="$( logtime-marks  | \
@@ -551,21 +577,12 @@ logtime-summary(){
   )"
     echo $(( totalsec / 3600 )) hours for $filter
 }
-logtime-marks-filter(){
-  start=${1:-0}
-  end=${2:-$LT_MAX_MARKS} # max records is about 32K
-  awk "NR > $start && NR <= $end"
-}
 
 logtime-marks-copy(){
   local start=${1:-0}
   local end=${2:-${#LT_MARKS[@]}}
 }
 
-logtime-unixtime-to-human(){
-  date -d @$1 +'%Y-%m-%d %H:%M:%S'
-
-}
 logtime-help(){
 helptext='
 Logtime uses Unix date command to create Unix timestamps.
@@ -615,6 +632,10 @@ _logtime-commits-to-html
   cat<<EOF
 </html>
 EOF
+}
+
+_logtime-unixtime-to-human(){
+  date -d @$1 +'%Y-%m-%d %H:%M:%S'
 }
 
 _logtime-make-toggle-html(){
@@ -740,20 +761,10 @@ logtime-mark-undo(){
   unset 'LT_MARKS[-1]'                       # leaves a blank line
 }
 
-logtime-dev-commit-undo(){
+_logtime-dev-commit-undo(){
   logtime-load $LT_COMMITS/$_LT_LAST_START   # reload from commit
   LT_STOP=""                                 # by def. must be blank
   rm $LT_COMMITS/$_LT_LAST_START
-}
-
-# deals with backup files ID.backup
-logtime-dev-delete-state(){
-  if [[ -f "$LT_STATES/$LT_START" ]]; then
-    mv $LT_STATES/$LT_START* "$LT_TRASH"
-    _logtime-clear
-  else
-    echo "State file $LT_START not found." 
-  fi
 }
 
 _logtime-dev-parse() {
@@ -918,7 +929,7 @@ _logtime-dev-webserver() {
 #marks_disposition=()
 test-load(){
   file="$LT_DIR/meta/$LT_START.meta"
-  echo "sorcing $file"
+  echo "sourcing $file"
   #source "$file"
   #eval "$( cat $file | grep marks_disposition )"
   _logtime-meta-restore
