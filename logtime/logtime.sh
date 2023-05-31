@@ -32,6 +32,19 @@ _logtime-clear(){
   LT_META=""              # filename of corresponding meta data 
 }
 
+_logtime-delete(){
+  local file=$LT_DIR/states/$1
+  if [ -f "$file" ]; then
+    echo "Deleting $file <ret> to continue"
+    read
+    mkdir -p /tmp/logtime
+    cp $file "/tmp/logtime/$file.$(date +%s)"
+    rm $file
+  else
+    echo "$file file not found"
+  fi 
+}
+
 _logtime-save(){
   if [ -z $LT_START ]; then
     echo "LT_START is empty. Use logtime-start [offset] [message]."
@@ -178,6 +191,7 @@ logtime-prompt-reset(){
 }
 
 logtime-restart(){
+    local lt_start_old=$LT_START
     LT_START=$(date +%s -d "$1" )
     LT_LASTMARK=$LT_START
     LT_STOP=""
@@ -546,6 +560,10 @@ logtime-marks-filter(){
 logtime-marks-copy(){
   local start=${1:-0}
   local end=${2:-${#LT_MARKS[@]}}
+}
+
+logtime-unixtime-to-human(){
+  date -d @$1 +'%Y-%m-%d %H:%M:%S'
 
 }
 logtime-help(){
