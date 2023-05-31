@@ -13,7 +13,8 @@ alias filter="logtime-marks-filter"
 alias push="logtime-stack-push"
 alias pop="logtime-stack-pop"
 alias popall="logtime-stack-pop $LT_MAX_MARKS"
-alias stack="logtime-stack-peek"
+alias clear="logtime-stack-clear"
+alias peek="logtime-stack-peek"
 alias mark-undo="logtime-mark-undo"
 
 alias store="logtime-store"
@@ -290,24 +291,6 @@ logtime-mark() {
   _logtime-save
 }
 
-logtime-mark-stdin(){
-  # 2h34m cleaned the office 
-  while IFS= read -r line
-  do
-    logtime-mark "$line"
-  done
-  #_logtime-save
-}
-logtime-mark-raw-stdin(){
-  # 7200 some string to the end of line
-  while IFS= read -r line
-  do
-    _logtime-append "$line"
-  done
-}
-
-
-
 logtime-rebase(){
   local total=0
   LT_LASTMARK=$LT_START
@@ -377,6 +360,10 @@ logtime-stack-push(){
   fi
 }
 
+logtime-stack-clear(){
+  unset LT_STACK
+  cat /dev/null > $LT_DIR/stack
+}
 
 logtime-stack-peek(){
   source $LT_DIR/stack
@@ -579,9 +566,27 @@ logtime-summary(){
 }
 
 logtime-marks-copy(){
-  local start=${1:-0}
-  local end=${2:-${#LT_MARKS[@]}}
+  _logtime-clipboard-stdin
+  declare -xp lt_clipboard > $LT_DIR/clipboard
 }
+
+
+_logtime-clipboard-stdin() {
+    lt_clipboard=() # Initialize an empty array
+    while IFS= read -r line; do
+        lt_clipboard+=("$line")
+    done
+}
+
+logtime-marks-paste(){
+  # The syntax/semantic contract requires clipboard contain a single varialbe
+  # and it is wiped every copy. Single source of truth is the disk.
+  source $LT_DIR/clipboard
+  for line in "${lt_clipboard[@]}"; do
+    echo "$line"
+  done
+}
+
 
 logtime-help(){
 helptext='
