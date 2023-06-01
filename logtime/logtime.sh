@@ -1,5 +1,4 @@
 #!/bin/bash
-
 LT_MAX_MARKS=32000
 LT_DIR=~/.logtime
 LT_STATES=$LT_DIR/states
@@ -10,13 +9,19 @@ alias mark="logtime-mark"
 alias marks="logtime-marks"
 alias marksraw="logtime-marks-raw"
 alias filter="logtime-marks-filter"
+alias raw="_logtime-mark-to-raw"
+alias clipboard="logtime-clipboard"
+alias cut="logtime-marks-cut"
+alias copy="logtime-marks-copy"
+alias paste="logtime-marks-paste"
+alias insert="_logtime-marks-insert-from-stdin"
 alias push="logtime-stack-push"
 alias pop="logtime-stack-pop"
 alias popall="logtime-stack-pop $LT_MAX_MARKS"
+alias rebase="logtime-rebase"
 alias clear="logtime-stack-clear"
 alias peek="logtime-stack-peek"
 alias mark-undo="logtime-mark-undo"
-
 alias store="logtime-store"
 alias status="logtime-status"
 
@@ -55,6 +60,13 @@ _logtime-delete(){
   fi 
 }
 
+_logtime-show(){
+  local -n var=$1
+  for line in "${var[@]}"; do
+    echo "$line"
+  done
+}
+
 _logtime-save(){
   if [ -z $LT_START ]; then
     echo "LT_START is empty. Use logtime-start [offset] [message]."
@@ -71,26 +83,6 @@ _logtime-save(){
     fi
   fi
 }
-
-logtime-load-commit(){
-  if [[ $# -eq  0 ]]; then
-    _logtime-load-interactive commits 
-  else 
-    _logtime-source "$1"
-  fi
-  logtime-prompt              # changes PS1 to show elapsed time
-}
-
-
-logtime-load(){
-  if [[ $# -eq  0 ]]; then
-    _logtime-load-interactive states
-  else 
-    _logtime-source "$1"
-  fi
-  logtime-prompt              # changes PS1 to show elapsed time
-}
-
 _logtime-load-interactive(){
   local type=${1:-states} 
   _logtime-objects "$LT_DIR/$type" 
@@ -185,9 +177,56 @@ _logtime-stop() {
   _logtime-save
 }
 
+_logtime-marks-compare() {
+    local -n array1=$1
+    local -n array2=$2
+
+    # Make sure the arrays have the same length
+    if [[ ${#array1[@]} -ne ${#array2[@]} ]]; then
+        echo "Arrays have different lengths"
+        return 1
+    fi
+
+    # Compare elements
+    for index in "${!array1[@]}"; do
+        if [[ "${array1[index]}" != "${array2[index]}" ]]; then
+            echo "Difference at index $index: ${array1[index]} vs ${array2[index]}"
+            #return 1
+        else
+            echo "Same at index $index: ${array1[index]} vs ${array2[index]}"
+        fi
+    done
+
+    #echo "Arrays are identical"
+    return 0
+}
+
 #######################################################################
 #   CLI API
 #######################################################################
+
+logtime-load-commit(){
+  if [[ $# -eq  0 ]]; then
+    _logtime-load-interactive commits 
+  else 
+    _logtime-source "$1"
+  fi
+  logtime-prompt              # changes PS1 to show elapsed time
+}
+
+
+logtime-load(){
+  if [[ $# -eq  0 ]]; then
+    _logtime-load-interactive states
+  else 
+    _logtime-source "$1"
+  fi
+  logtime-prompt              # changes PS1 to show elapsed time
+}
+
+
+
+
 logtime-prompt(){
   # Logtime's prompt shows how much time since last mark.
   PS1_ORIG="$PS1"
@@ -392,7 +431,7 @@ logtime-stores(){
 logtime-commits(){
 
    local lt_msg="$LT_MSG"
-  _logtime-objects "$LT_DIR/commits"     # displays them
+  _logtime-objects marks"$LT_DIR/commits"     # displays them
   ltc=()
   for file in $(ls "$LT_DIR/commits")    # create array of them
   do
@@ -508,6 +547,20 @@ logtime-marks-raw(){
   IFS=$IFS_ORIG 
 }
 
+logtime-marks-cut() {
+    local start=$(( $1 -1  ))
+    local end=$(( $2 - 1 ))
+    lt_cut=("${LT_MARKS[@]:$start:$((end-start+1))}")
+
+    # Create a new array from the elements before start and the elements after end
+    LT_MARKS=("${LT_MARKS[@]:0:$((start+1))}" \
+              "${LT_MARKS[@]:$((end+1)):${#LT_MARKS[@]}}")
+
+    lt_clipboard=();
+    for i in "${lt_cut[@]}"; do lt_clipboard+=("$i"); done
+    _logtime-clipboard-write
+}
+
 logtime-marks-filter () 
 { 
     start=${1:-0};
@@ -516,6 +569,38 @@ logtime-marks-filter ()
     (( end++ ))
     awk "NR <= $end && NR >= $start"
 }
+logtime-marks-new(){
+  IFS_ORIG=$IFS
+  IFS=$"\n"
+  local total=0
+  local abstime=0
+  local n=0
+  local start=${1:-0}
+  local end=${2:-${#LT_MARKS_NEW[@]}}
+  _logtime-meta-restore
+  lt_clipboard=() 
+  for line in "${LT_MARKS_NEW[@]}"; do
+    IFS=' ' read left right <<< "$line"
+    local hms=$(_logtime-hms $left)
+    (( abstime=(LT_START + total) ))
+    if (( $n >=  "$start"  && $n <= "$end" )); then 
+      printf "%3s %5s %-36s  %9s %3s" \
+          $n $left "$right" $hms "${marks_disposition[$n]}"
+      printf " %s\n" "$(date +"%a %D %H:%M" -d@$abstime )"
+      lt_clipboard+=("$line")
+    fi
+    (( total+=$left ))
+    (( n++ ))
+  done;
+  (( abstime=(LT_START + total) ))
+  printf "%59s %20s \n" " " "$( date +"%a %D %H:%M" -d@$abstime )" 
+  IFS=$IFS_ORIG
+  printf "        Total seconds:%s (%2.2f days)\n" \
+      $total $(jq -n "$total/(60*60*24)")
+  printf "LT_LASTMARK-LT_START: %s (%2.2f days)\n" \
+      $((LT_LASTMARK-LT_START)) $(jq -n "$total/(60*60*24)")
+}
+
 
 logtime-marks(){
   IFS_ORIG=$IFS
@@ -547,7 +632,14 @@ logtime-marks(){
       $total $(jq -n "$total/(60*60*24)")
   printf "LT_LASTMARK-LT_START: %s (%2.2f days)\n" \
       $((LT_LASTMARK-LT_START)) $(jq -n "$total/(60*60*24)")
+}
+
+_logtime-clipboard-write(){
   declare -xp lt_clipboard > $LT_DIR/clipboard
+}
+
+_logtime-clipboard-read(){
+  source $LT_DIR/clipboard
 }
 
 logtime-marks-reload(){
@@ -587,6 +679,36 @@ logtime-marks-paste(){
   done
 }
 
+_logtime-marks-insert-from-clipboard(){
+    local marks=("${LT_MARKS[@]}")
+
+    local pos=${2:-${#marks[@]}}
+
+    for line in "${lt_clipboard[@]}"; do
+        marks=("${marks[@]:0:$pos}" "$line" "${marks[@]:$pos}")
+        ((pos++))
+    done
+
+    LT_MARKS=("${marks[@]}")
+}
+
+# To use:
+#   _logtime-marks-insert-from-stdin < <(paste)
+_logtime-marks-insert-from-stdin() {
+    # Create a copy of the array
+    local marks=("${LT_MARKS[@]}")
+    local insert_lines=()
+
+    # Read from stdin and store in an array
+    while IFS= read -r line; do
+        insert_lines+=("$line")
+    done
+
+    local pos=${1:-${#marks[@]}}
+
+    # Insert the lines at the specified position and update the array
+    LT_MARKS=("${marks[@]:0:$pos}" "${insert_lines[@]}" "${marks[@]:$pos}")
+}
 
 logtime-help(){
 helptext='
@@ -759,6 +881,8 @@ EOF
 
     echo "</div> <!-- nom -->"
 }
+
+
 logtime-mark-undo(){
   local mark=("${LT_MARKS[-1]}")           # last element
   IFS=' ' read first rest <<< "$mark"
@@ -785,6 +909,30 @@ _logtime-dev-parse() {
   done < "$LT_TIMELOG" 
   IFS=$' \t\n'
 }
+
+_logtime-mark-to-raw() {
+    while IFS= read -r line; do
+        # Read the line into an array
+        read -r -a array <<< "$line"
+        
+        # Extract the relevant fields
+        n=${array[0]}
+        sec=${array[1]}
+        hms=${array[-4]}
+        dow=${array[-3]}
+        day=${array[-2]}
+        time=${array[-1]}
+        
+        # Combine the tokens for the label_tokens
+        label_tokens=()
+        for ((i=2; i<${#array[@]}-4; i++)); do
+            label_tokens+=("${array[i]}")
+        done
+        
+        echo "${sec} ${label_tokens[*]}"
+    done
+}
+
 
 _logtime-make-line(){
   curline="${LT_MARKS[$1]}"
