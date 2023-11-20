@@ -1,4 +1,4 @@
-paa-help(){
+paa_help(){
 cat <<EOF
   what ppa?
 
