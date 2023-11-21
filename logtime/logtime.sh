@@ -25,6 +25,16 @@ alias mark-undo="logtime-mark-undo"
 alias store="logtime-store"
 alias status="logtime-status"
 
+# Create an alias for the 'date' command based on the operating system
+if [ "$(uname)" = "Darwin" ]; then
+    # macOS uses a different syntax for 'date'
+    alias date='gdate'
+else
+    # Linux and other Unix-like systems
+    echo Standard Linux
+fi
+echo Using $(uname) for OS.
+
 #######################################################################
 #  Helper functions start with _ 
 #######################################################################
@@ -715,7 +725,7 @@ helptext='
 Logtime uses Unix date command to create Unix timestamps.
 Start with an intention:
 
-  logtime-start working on invoices for logtime
+  logtime-start working on logtime
 
 This starts a timer. Mark time by stating what you have 
 done while the timer is running:
@@ -726,6 +736,12 @@ done while the timer is running:
 Get the status by: logtime-status
 Restore state: logtime-load <timestamp> # no argument will list all possible
 Commit the list of duration marks: logtime-commit  # writes to $LT_TIMELOG
+
+Mac users need to install:
+brew install coreutils  # installs gdate
+brew install bash
+Add /opt/homebrew/bin/bash to /etc/shells
+sudo chpass -s /usr/local/bin/bash
 '
   echo "$helptext"
 }
