@@ -2,6 +2,7 @@
 
 say_info(){
   cat <<EOF
+
   say.sh: say_voices() reads voice ID strings and greetings from
   stdin line by line and converts those tokens into voice selection
   strings supplied by say -v ?
@@ -17,11 +18,14 @@ say_info(){
 
 EOF
 }
+
 say_voices() {
 
+    trap handle_interrupt SIGINT
 
    # Read lines into an array
-    mapfile -t lines # < "$1"
+    #mapfile -t lines # < "$1"
+    mapfile -t lines
     local index=0
 
     while [[ $index -lt ${#lines[@]} ]]; do
@@ -80,4 +84,18 @@ say_voices() {
                 ;;
         esac
     done
+
+    # Remove the trap on script exit
+    trap - SIGINT
 }
+
+handle_interrupt() {
+  # Kill the 'say' process if it's running
+  if [[ $say_pid ]]; then
+    kill $say_pid 2>/dev/null
+  fi
+  echo -e "\nScript interrupted. Exiting."
+  exit 1
+}
+
+
