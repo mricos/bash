@@ -24,13 +24,19 @@ qa_docs() {
     cat <<EOF
 Q&A Command Line Tool Documentation:
 ------------------------------------
-qa_docs        - Show this documentation.
-qa_status      - Display current system status.
-qa_set_apikey  - Set the API key for the Q&A engine.
-qa_set_engine  - Set the Q&A engine (default: OpenAI).
-qa_set_context - Set default context for queries.
+qa_docs          - Show this documentation.
+qa_status        - Display current system status.
+qa_set_apikey    - Set the API key for the Q&A engine.
+qa_set_engine    - Set the Q&A engine (default: OpenAI).
+qa_set_context   - Set default context for queries.
 qa_select_engine - Select the engine from available OpenAI engines.
-q              - Query with detailed output.
+qa_reset         - Resets history in $QA_DIR (~/.qa by default)
+qa_log           - Log a message to the log $QA_DIR/qa.log
+qa_log_show      - Show debug log
+q                - Query with detailed output
+a                - Most recent answer
+as               - All answers
+
 EOF
 }
 
@@ -61,7 +67,11 @@ qa_set_context() {
 
 # Function to list and select an engine from OpenAI's available engines
 qa_select_engine() {
-    local engines=$(curl -s -H "Authorization: Bearer $(cat $OPENAI_API_FILE)" "https://api.openai.com/v1/engines")
+
+    local engines=$(curl -s \
+      -H "Authorization: Bearer $(cat $OPENAI_API_FILE)" \
+      "https://api.openai.com/v1/engines")
+
     echo "Available Engines:"
     echo "$engines" | jq -r '.data[].id'
 
@@ -76,33 +86,35 @@ qa_select_engine() {
     fi
 }
 
-# Debug version of the query function
 q() {
     local context=$(cat $QA_CONTEXT_FILE)
     local query_delta="${*}"
     local debug_output="$QA_DIR/debug"
 
     # Start writing to the debug file
-    echo "Debug - Sending query: $context $query_delta" > "$debug_output"
+    qa_debug "Sending query: $context $query_delta" 
 
-    local data=$(jq -nc --arg model $(cat $QA_ENGINE_FILE) --arg content "$context $query_delta" \
-                '{model: $model, messages: [{role: "user", content: $content}]}')
+    local data=$(jq -nc \
+      --arg model $(cat $QA_ENGINE_FILE) \
+      --arg content "$context $query_delta" \
+     '{model: $model, messages: [{role: "user", content: $content}]}')
 
-    echo "Debug - Formulated data: $data" >> "$debug_output"
+    qa_debug "Formulated data: $data"
 
-    local response=$(curl -v -s --connect-timeout 10 -X POST "https://api.openai.com/v1/chat/completions" \
+    local response=$(curl -v -s \
+        --connect-timeout 10 \
+        -X POST "https://api.openai.com/v1/chat/completions" \
                     -H "Authorization: Bearer $(cat $OPENAI_API_FILE)" \
                     -H "Content-Type: application/json" \
                     -d "$data" 2>> "$debug_output")
 
-    echo "Debug - Full response: $response" >> "$debug_output"
+    qa_debug "Full response: $response" 
 
     local answer=$(echo "$response" | jq -r '.choices[0].message.content')
-    echo "Debug - Extracted answer: $answer" >> "$debug_output"
+    qa_debug "Extracted answer: $answer"
 
     if [[ -z "$answer" || "$answer" == "null" ]]; then
-        echo "Debug - No valid answer received or response is null." >> "$debug_output"
-        cat "$debug_output"
+        qa_debug "No valid answer received or response is null."
         return 1
     fi
 
@@ -115,14 +127,15 @@ q() {
     echo "$answer" >> "$QA_DIR/answer_log"
 
     local json_entry
-    json_entry=$(jq -nc --arg query_delta "$query_delta" --arg answer "$answer" \
+    json_entry=$(jq -nc --arg query_delta "$query_delta" \
+                        --arg answer "$answer" \
                 '{query_delta: $query_delta, answer: $answer}')
 
     echo "$json_entry" >> "$QA_DIR/answers.json"
 
     # Append final answer to debug file and then output it
-    echo "Debug - Final Answer: $answer" >> "$debug_output"
-    cat "$debug_output"
+    qa_debug "Answer: $answer"
+    echo "Answer: $answer" 
 }
 
 
@@ -145,6 +158,28 @@ qa_reset() {
     > "$QA_DIR/answers.json"  # Clear the answers.json file
     > "$QA_DIR/last_answer"   # Clear the last_answer file
     echo "Reset complete: answers.json and last_answer have been cleared."
+}
+
+
+MAX_LOG_LINES=1000
+qa_log() {
+    local message=$1
+    DEBUG_LOG=$QA_DIR/qa.log
+    # Append new message with timestamp to the log file
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $message" >> "$DEBUG_LOG"
+
+    # Trim the log file to keep only the last MAX_LOG_LINES lines
+    # This creates a temporary file to hold the trimmed content
+    tail -n $MAX_LOG_LINES "$DEBUG_LOG" > "$DEBUG_LOG.tmp"
+    mv "$DEBUG_LOG.tmp" "$DEBUG_LOG"
+}
+
+qa_debug(){
+   true && qa_log "[debug] $@"
+}
+
+qa_log_show(){
+   cat $QA_DIR/qa.log
 }
 
 a ()
