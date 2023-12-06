@@ -13,32 +13,27 @@ source "$LT_SRC/store.sh"
 #source "$LT_SRC/clipboard.sh"
 #source "$LT_SRC/stack.sh"
 
-logtime-load-commit(){
-  if [[ $# -eq  0 ]]; then
-    _logtime-load-interactive commits 
-  else 
-    _logtime-source "$1"
-  fi
-  logtime-prompt              # changes PS1 to show elapsed time
-}
+
 
 logtime-load(){
   if [[ $# -eq  0 ]]; then
     _logtime-load-interactive states
-  else 
+  else
     _logtime-source "$1"
   fi
-  logtime-prompt              # changes PS1 to show elapsed time
+  logtime-prompt   # changes PS1 to show elapsed time
 }
 
-logtime-restart(){
-    local lt_start_old=$LT_START
-    LT_START=$(date +%s -d "$1" )
-    LT_LASTMARK=$LT_START
-    LT_STOP=""
-    LT_MSG="$msg"
-
+logtime-load-commit(){
+  if [[ $# -eq  0 ]]; then
+    _logtime-load-interactive commits
+  else
+    _logtime-source "$1"
+  fi
+  logtime-prompt  # changes PS1 to show elapsed time
 }
+
+
 logtime-start() {
   local when="now"
   local msg
@@ -69,18 +64,25 @@ logtime-start() {
   _logtime-start-text
 }
 
+logtime-restart(){
+    local lt_start_old=$LT_START
+    LT_START=$(date +%s -d "$1" )
+    LT_LASTMARK=$LT_START
+    LT_STOP=""
+    LT_MSG="$msg"
+}
 
 # Marks define a length of time if no length is given in hms, then:
 # markdur = curtime-LT_START-markdur_total
 #
-# 123423313123 Starting to do something
+# 1700546780 Starting to do something
 # 363 This is the first mark for 0h6m3s
 # 3600 This is second mark string   for 1h
 # 1800 This thrid task lasted 0h30m0s
-# 9003 marktime_total 
+# 9003 marktime_total
 
 logtime-mark() {
-  [ ! -z "$LT_STOP" ] && echo "protected" && return 
+  [ ! -z "$LT_STOP" ] && echo "protected" && return
   local curtime=$(date +%s)
   dur=0
   dur=$(_logtime-hms-to-seconds  $1)
@@ -92,7 +94,7 @@ logtime-mark() {
     local msg="${@:2}"
   fi
 
-  # If the user adds a duration and it is less than 
+  # If the user adds a duration and it is less than
   # (curtime - LT_LASTMARK) then add the user's duration
   # to LASTMARK. Otherwise LASTMARK=currentTime.
 
@@ -101,7 +103,7 @@ logtime-mark() {
   (( dur < curtime - lastmark )) &&  LT_LASTMARK=$((LT_LASTMARK + dur));
   (( dur >= curtime - lastmark )) && LT_LASTMARK=$curtime;
   IFS_ORIG=$IFS
-  IFS=$'\n'  
+  IFS=$'\n'
   LT_MARKS+=("$dur $msg")              # array created on newline boundaries
   IFS=$IFS_ORIG
   _logtime-save
@@ -132,7 +134,6 @@ logtime-states(){
 }
 
 logtime-commits(){
-
    local lt_msg="$LT_MSG"
   _logtime-objects marks"$LT_DIR/commits"     # displays them
   ltc=()
@@ -140,11 +141,6 @@ logtime-commits(){
   do
       ltc+=("$LT_DIR/commits/$file")
   done
-
-  #for commit in $(ls $LT_DIR/commits)
-  #do
-  #  printf "%s %s\n" "$commit" "$(date --date="@$commit")"
-  #done
 
   LT_MSG="$lt_msg"
 }
@@ -154,15 +150,14 @@ logtime-commit(){
   if [ -z $LT_START ]; then
     echo "LT_START is empty. Use logtime-start [offset] [message]."
     return -1
-  fi 
-  
-  if [ -z $1 ] # if there is one or more arguments, treat it as string
+  fi
+
+  if [ -z $1 ]
   then
-    #echo "LT_STOP is empty. Use logtime-stop [offset] [message]."
-    commitmsg="Committed $LT_MSG at $(date --date=@$LT_STOP)"
+    commitmsg="Committed $LT_MSG"
   else
     local commitmsg="${@:1}"
-  fi 
+  fi
 
   LT_COMMIT="$commitmsg"
 
@@ -175,40 +170,46 @@ logtime-commit(){
   (( secAgo= now-calcStop))
   local hmsAgo=$(_logtime-hms $secAgo)
   echo "Total marks:"  $(jq -n "$totalMarks/(60*60*24)") $hmsAgo ago.
-  echo "Calc stop:"  $(date --date=@$calcStop) 
+  echo "Calc stop:"  $(date --date=@$calcStop)
   LT_STOP=$calcStop
-  read
-  _logtime-stop # will not return if stop has not been called 
+  _logtime-stop # will not return if stop has not been called
   local datestart=$(date --date=@$LT_START)
   local datestop=$(date --date=@$LT_STOP)
   local deltaSeconds=$(($LT_STOP - $LT_START))
   local remaining=$(($LT_STOP - $(date +%s) ))
-
-
   local duration=$(_logtime-hms $deltaSeconds )
   printf 'logtime-marks: \n'
   logtime-marks
   printf '%s\n' "Message: $LT_MSG"
-  printf 'Date start: %s\n'  "$datestart" 
-  printf 'Date stop: %s\n'  "$datestop" 
+  printf 'Date start: %s\n'  "$datestart"
+  printf 'Date stop: %s\n'  "$datestop"
   printf '%s %s\n' "Open duration:" $duration
+  commitmsg="$commitmsg at $datestop"
   printf '%s\n' "Commit msg: $commitmsg"
-  printf '%s\n' "logtime-start $((date -d $LT_STOP ))" 
+  printf '%s\n' "logtime-start $datestop)"
   printf 'Commit? ctrl-c to cancel, return to continue\n'
   read ynCommit
-
   _logtime-save
   mv "$LT_STATES/$LT_START" "$LT_COMMITS/$LT_START"
-  rm "$LT_STATES/$LT_START.*" 
+  rm "$LT_STATES/$LT_START.*" 2> /dev/null # may not be any dot ext
   echo "moved $LT_STATES/$LT_START $LT_COMMITS/$LT_START"
   _LT_LAST_START=$LT_START
   _logtime-clear
 }
 
+logtime-commit-undo(){
+  local file="$LT_DIR/commits/$LT_START"
+  echo $file
+  logtime-load $file
+  LT_STOP=""
+  LT_COMMIT=""
+  echo "Be sure to logtime-save"
+}
+
 logtime-status(){
   if [ -z "$LT_START" ]; then
     echo "
-   No timer started. 
+   No timer started.
    Use logtime-start <optional message of intention>
 "
     return 1
@@ -224,11 +225,11 @@ logtime-status(){
   echo "  LT_MSG=$LT_MSG"
   echo "  LT_STOP=$LT_STOP ($datestr, duration: $dur)"
   echo "  Run logtime-marks to see marks for current sequence"
-  echo 
+  echo
 }
 
-logtime-marks-filter () 
-{ 
+logtime-marks-filter ()
+{
     start=${1:-0};
     end=${2:-$LT_MAX_MARKS};
     (( start++ ))
@@ -245,12 +246,12 @@ logtime-marks(){
   local start=${1:-0}
   local end=${2:-${#LT_MARKS[@]}}
   _logtime-meta-restore
-  lt_clipboard=() 
+  lt_clipboard=()
   for line in "${LT_MARKS[@]}"; do
     IFS=' ' read left right <<< "$line"
     local hms=$(_logtime-hms $left)
     (( abstime=(LT_START + total) ))
-    if (( $n >=  "$start"  && $n <= "$end" )); then 
+    if (( $n >=  "$start"  && $n <= "$end" )); then
       printf "%3s %5s %-36s  %9s %3s" \
           $n $left "$right" $hms "${marks_disposition[$n]}"
       printf " %s\n" "$(date +"%a %D %H:%M" -d@$abstime )"
@@ -260,7 +261,7 @@ logtime-marks(){
     (( n++ ))
   done;
   (( abstime=(LT_START + total) ))
-  printf "%59s %20s \n" " " "$( date +"%a %D %H:%M" -d@$abstime )" 
+  printf "%59s %20s \n" " " "$( date +"%a %D %H:%M" -d@$abstime )"
   IFS=$IFS_ORIG
   printf "        Total seconds:%s (%2.2f days)\n" \
       $total $(jq -n "$total/(60*60*24)")

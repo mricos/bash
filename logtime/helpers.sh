@@ -1,9 +1,9 @@
 #######################################################################
-#  Helper functions start with _ 
+#  Helper functions start with _
 #######################################################################
 
 _logtime-clear(){
-  LT_START=""             # set at creation 
+  LT_START=""             # set at creation
   LT_STOP=""              # empty until commit
   LT_MSG=""               # set at creation
   LT_LASTMARK=$(date +%s) # timestamp
@@ -30,7 +30,7 @@ _logtime-delete(){
     rm $file
   else
     echo "$file file not found"
-  fi 
+  fi
 }
 
 _logtime-show(){
@@ -57,12 +57,12 @@ _logtime-save(){
   fi
 }
 _logtime-load-interactive(){
-  local type=${1:-states} 
-  _logtime-objects "$LT_DIR/$type" 
+  local type=${1:-states}
+  _logtime-objects "$LT_DIR/$type"
   local listing=$(ls -1 "$LT_DIR/$type")
   local filenames=""
   readarray -t filenames <<< "$listing";
-  read -p "Select $type to load: " filenum 
+  read -p "Select $type to load: " filenum
   filenum=$((filenum-1))
   _logtime-clear
   _logtime-source "$LT_DIR/$type/${filenames[$filenum]}"
@@ -75,9 +75,9 @@ _logtime-source(){
     if [[ $line == declare\ * ]]
     then
         tokens=($(echo $line))  # () creates array
-        # override flags with -ag global 
+        # override flags with -ag global
         # since declare does not provide g
-        local cmd="${tokens[0]} -ag ${tokens[@]:2}" 
+        local cmd="${tokens[0]} -ag ${tokens[@]:2}"
         eval  "$cmd"
     fi
   done < "$1"
@@ -102,10 +102,10 @@ _logtime-elapsed-hms(){
   if [ -z "$LT_STOP" ]; then
     ts=$(date +%s)
   fi
-  local elapsed=0  
+  local elapsed=0
   elapsed=$((ts - LT_LASTMARK))
   local elapsedHms=$(_logtime-hms $elapsed)
-  echo $elapsedHms 
+  echo $elapsedHms
 }
 
 _logtime-set-stop-from-marks(){
@@ -134,7 +134,7 @@ _logtime-objects() {
   readarray -t filenames <<< "$listing";
  for i in "${!filenames[@]}"  #0 indexing ${!varname[@]} returns indices
   do
-    local msg=$(_logtime-get-startmsg "$dir/${filenames[$i]}")  
+    local msg=$(_logtime-get-startmsg "$dir/${filenames[$i]}")
     echo "$((i+1))) ${filenames[$i]}: $msg"
   done
 }
@@ -143,7 +143,7 @@ _logtime-stop() {
   echo "LT_STOP is $LT_STOP"
   if [ ! -z "$LT_STOP" ]; then
     return -1 # LT_STOP is not empty, deny user, must unstop first
-  else 
+  else
     LT_STOP=$(date +%s)
   fi
   logtime-mark "STOPPED"
@@ -185,7 +185,6 @@ _logtime-meta-restore(){
      echo "File not found: $metafile" > /dev/null
   fi
 
-  #echo "Got ${#marks_disposition[@]}" >&2
 }
 
 _logtime-meta-save(){
