@@ -52,6 +52,7 @@ wacom-set-asus-laptop(){
     wacom-map-to-output 192 1080 1728 1080
 }
 wacom-set-asus-monitor(){
+    echo "HAER"
     wacom-map-to-output 192 0 1728 1080
 }
 
