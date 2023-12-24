@@ -7,15 +7,6 @@ logtime-load-commit(){
   logtime-prompt              # changes PS1 to show elapsed time
 }
 
-logtime-load(){
-  if [[ $# -eq  0 ]]; then
-    _logtime-load-interactive states
-  else 
-    _logtime-source "$1"
-  fi
-  logtime-prompt              # changes PS1 to show elapsed time
-}
-
 logtime-prompt(){
   # Logtime's prompt shows how much time since last mark.
   PS1_ORIG="$PS1"
