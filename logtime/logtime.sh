@@ -13,8 +13,6 @@ source "$LT_SRC/store.sh"
 #source "$LT_SRC/clipboard.sh"
 #source "$LT_SRC/stack.sh"
 
-
-
 logtime-load(){
   if [[ $# -eq  0 ]]; then
     _logtime-load-interactive states
@@ -107,6 +105,13 @@ logtime-mark() {
   LT_MARKS+=("$dur $msg")              # array created on newline boundaries
   IFS=$IFS_ORIG
   _logtime-save
+}
+
+logtime-mark-undo(){
+  local mark=("${LT_MARKS[-1]}")           # last element
+  IFS=' ' read first rest <<< "$mark"
+  LT_LASTMARK=$(($LT_LASTMARK - $first ))  # roll back when last mark was made
+  unset 'LT_MARKS[-1]'                       # leaves a blank line
 }
 
 logtime-rebase(){

@@ -158,12 +158,6 @@ logtime-mark-undo(){
   unset 'LT_MARKS[-1]'                       # leaves a blank line
 }
 
-_logtime-dev-commit-undo(){
-  logtime-load $LT_COMMITS/$_LT_LAST_START   # reload from commit
-  LT_STOP=""                                 # by def. must be blank
-  rm $LT_COMMITS/$_LT_LAST_START
-}
-
 _logtime-dev-parse() {
   while IFS= read -r line; do  #get the whole line, no IFS
       IFS=.; tokens=($line)    # now IFS is .
