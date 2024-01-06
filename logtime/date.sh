@@ -1,9 +1,7 @@
 # Create an alias for the 'date' command based on the operating system
-if [ "$(uname)" = "Darwin" ]; then
-    # macOS uses a different syntax for 'date'
-    alias date='gdate'
-else
-    # Linux and other Unix-like systems
-    echo Standard Linux
-fi
-echo Using $(uname) for OS.
+
+[ "$(uname)" = "Darwin" ] && \
+    alias date='gdate'  && echo "Darwin/Mac OS uses gdate" 2>&1 
+
+[ ! "$(uname)" = "Darwin" ] && \
+    unalias date && echo "Standard date" 2>&1
