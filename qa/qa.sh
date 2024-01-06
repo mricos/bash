@@ -86,77 +86,49 @@ qa_select_engine() {
     fi
 }
 
-q() {
-    local input="$(cat /dev/stdin)"
-    local context=$(cat $_QA_CONTEXT_FILE)
-    local error_output="$QA_DIR/error.log"
-    #local api_endpoint="https://api.openai.com/v1/completions"
-    local api_endpoint="https://api.openai.com/v1/chat/completions"
-
-    echo "--arg  $input"  > debug.txt
-
-    # Start writing to the debug file
-    qa_debug "Sending query: $context $input" 
-
-    local data=$(jq -nc \
-      --arg model $(cat $_QA_ENGINE_FILE) \
-      --arg content "$context $input" \
-     '{model: $model, messages: [{role: "user", content: $content}]}')
-
-    qa_debug "Formulated data: $data"
-
-    local response=$(curl -v -s \
-        --connect-timeout 10 \
-        -X POST "$api_endpoint" \
-                    -H "Authorization: Bearer $(cat $_OPENAI_API_FILE)" \
-                    -H "Content-Type: application/json" \
-                    -d "$data" 2>> "$error_output")
-
-    qa_debug "Full response: $response" 
-
-    local answer=$(echo "$response" | jq -r '.choices[0].message.content')
-    qa_debug "Extracted answer: $answer"
-
+q ()
+{
+    local input="";
+    local error_output="$QA_DIR/error.log";
+    local api_endpoint="<https://api.openai.com/v1/chat/completions>";
+    local data response answer json_entry;
+    if [[ -n "$1" ]]; then
+        input="$1";
+    else
+        echo "Enter your query, press Ctrl-D when done.";
+        while IFS= read -r line; do
+            input+="$line\\n";
+        done;
+    fi;
+    if [[ -z "$input" ]]; then
+        echo "No input received, exiting.";
+        return 1;
+    fi;
+    echo "Processing your query...";
+    qa_debug "Sending query: $input";
+    data=$(jq -nc --arg model $(<$_QA_ENGINE_FILE) --arg content "$input"
+        '{model: $model, messages: [{role: "user", content: $content}]}');
+    qa_debug "Formulated data: $data";
+    response=$(curl -s --connect-timeout 10 -X POST "$api_endpoint"
+        -H "Authorization: Bearer $(<$_OPENAI_API_FILE)"
+        -H "Content-Type: application/json" -d "$data"
+        2>> "$error_output");
+    qa_debug "Full response: $response";
+    answer=$(echo "$response" | jq -r '.choices[0].message.content');
     if [[ -z "$answer" || "$answer" == "null" ]]; then
-        qa_debug "No valid answer received or response is null."
-        return 1
-    fi
-
-    if [[ ! -f "$QA_DIR/context.json" ]]; then
-        echo "{\"context\": \"$context\"}" > "$QA_DIR/context.json"
-    fi
-
-    echo "$answer" > "$QA_DIR/last_answer"
-    echo "$input" >> "$QA_DIR/query_log"
-    echo "$answer" >> "$QA_DIR/answer_log"
-
-    local json_entry
-    json_entry=$(jq -nc --arg query_delta "$input" \
-                        --arg answer "$answer" \
-                '{query_delta: $query_delta, answer: $answer}')
-
-    echo "$json_entry" >> "$QA_DIR/answers.json"
-
-    # Append final answer to debug file and then output it
-    qa_debug "Answer: $answer"
-    echo "Answer: $answer" 
+        qa_debug "No valid answer received or response is null.";
+        return 1;
+    fi;
+    echo "$answer" > "$QA_DIR/last_answer";
+    echo "$input" >> "$QA_DIR/query_log";
+    echo "$answer" >> "$QA_DIR/answer_log";
+    json_entry=$(jq -nc --arg query_delta "$input" --arg answer "$answer"
+        '{query_delta: $query_delta, answer: $answer}');
+    echo "$json_entry" >> "$QA_DIR/answers.json";
+    qa_debug "Answer: $answer";
+    echo -e "Your query:\\n$input\\n\\nAnswer:\\n$answer"
 }
 
-qd() {
-  local input
-
-  # Read multiline input until EOF (Ctrl-D) is detected
-  while IFS= read -r line; do
-    input+="$line"$'\n'
-  done
-
-  # Pass the input to the q function
-  q <<EOF
-$input
-EOF
-
-  echo "Sent input to q"
-}
 
 # Initialize system
 qa_init() {
