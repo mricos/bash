@@ -1,4 +1,4 @@
-#d!/bin/bash
+#!/bin/bash
 
 # Directory for storing logs and configurations
 QA_DIR="$HOME/.qa"
@@ -85,50 +85,6 @@ qa_select_engine() {
         echo "Invalid engine selected."
     fi
 }
-
-q ()
-{
-    local input="";
-    local error_output="$QA_DIR/error.log";
-    local api_endpoint="<https://api.openai.com/v1/chat/completions>";
-    local data response answer json_entry;
-    if [[ -n "$1" ]]; then
-        input="$1";
-    else
-        echo "Enter your query, press Ctrl-D when done.";
-        while IFS= read -r line; do
-            input+="$line\\n";
-        done;
-    fi;
-    if [[ -z "$input" ]]; then
-        echo "No input received, exiting.";
-        return 1;
-    fi;
-    echo "Processing your query...";
-    qa_debug "Sending query: $input";
-    data=$(jq -nc --arg model $(<$_QA_ENGINE_FILE) --arg content "$input"
-        '{model: $model, messages: [{role: "user", content: $content}]}');
-    qa_debug "Formulated data: $data";
-    response=$(curl -s --connect-timeout 10 -X POST "$api_endpoint"
-        -H "Authorization: Bearer $(<$_OPENAI_API_FILE)"
-        -H "Content-Type: application/json" -d "$data"
-        2>> "$error_output");
-    qa_debug "Full response: $response";
-    answer=$(echo "$response" | jq -r '.choices[0].message.content');
-    if [[ -z "$answer" || "$answer" == "null" ]]; then
-        qa_debug "No valid answer received or response is null.";
-        return 1;
-    fi;
-    echo "$answer" > "$QA_DIR/last_answer";
-    echo "$input" >> "$QA_DIR/query_log";
-    echo "$answer" >> "$QA_DIR/answer_log";
-    json_entry=$(jq -nc --arg query_delta "$input" --arg answer "$answer"
-        '{query_delta: $query_delta, answer: $answer}');
-    echo "$json_entry" >> "$QA_DIR/answers.json";
-    qa_debug "Answer: $answer";
-    echo -e "Your query:\\n$input\\n\\nAnswer:\\n$answer"
-}
-
 
 # Initialize system
 qa_init() {
