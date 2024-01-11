@@ -12,6 +12,7 @@ source "$LT_SRC/prompt.sh"
 source "$LT_SRC/store.sh"
 #source "$LT_SRC/clipboard.sh"
 #source "$LT_SRC/stack.sh"
+source "$LT_SRC/development.sh"
 
 logtime-load(){
   if [[ $# -eq  0 ]]; then
