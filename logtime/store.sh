@@ -1,29 +1,21 @@
 logtime-store() {
     local timestamp=$(date +%s)
     local file="$LT_DIR/store/$LT_START.store"
-    local input="$@"
+    local input
 
-    # Single line input
-    echo "$timestamp $input" >> "$file"
+    if [ -t 0 ]; then  # Check if stdin is a terminal (i.e., no piping)
+        # Single-line input
+        input="$@"
+        echo "$timestamp $input" >> "$file"
+    else
+        # Multiline input
+        echo "$timestamp START_MULTILINE" >> "$file"
+        while IFS= read -r line; do
+            echo "$line" >> "$file"
+        done
+        echo "$timestamp END_MULTILINE" >> "$file"
+    fi
 }
-
-logtime-store-multiline() {
-    local start_time=$(date +%s)
-    local file="$LT_DIR/store/$LT_START.store"
-
-    # Mark the start of a multiline input
-    echo "$start_time START_MULTILINE" >> "$file"
-
-    # Read and log each line
-    while IFS= read -r line; do
-        echo "$start_time $line" >> "$file"
-    done
-
-    # Mark the end of the multiline input
-    local end_time=$(date +%s)
-    echo "$end_time END_MULTILINE" >> "$file"
-}
-
 
 logtime-store-deprecated(){
   echo "$(date +%s) $@" >> $LT_DIR/store/$LT_START.store
