@@ -2,12 +2,12 @@
 
 # Directory for storing logs and configurations
 QA_DIR="$HOME/.qa"
-mkdir -p "$QA_DIR"
-mkdir -p "$QA_DIR/answers"
-alias q='qq'
+alias q='qa_short'
+alias qq='qa_query'
+alias db="ls $QA_DIR/db"
 
 # Default configurations overwriten by init()
-QA_ENGINE="gpt-3.5-turbo"  # Default engine
+QA_ENGINE="gpt-3.5-turbo"         # Default engine
 QA_CONTEXT="Two sentences only."  # Example default context
 
 _QA_ENGINE_FILE="$QA_DIR/engine"
@@ -19,55 +19,87 @@ qa_test(){
   a
 }
 
-# Fresh change at:
-# https://chat.openai.com/c/6088f0a7-6ef1-4238-a515-772ed1976e2b
-#
-qq () 
-{ 
-    local input="";
-    local error_output="$QA_DIR/error.log";
-    local api_endpoint="https://api.openai.com/v1/chat/completions";
-    local data response answer json_entry;
-    if [[ -n "$1" ]]; then
-        input="$1";
-    else
-        echo "Enter your query, press Ctrl-D when done:";
-        while IFS= read -r line; do
-            input+="$line\n";
-        done;
-    fi;
-    if [[ -z "$input" ]]; then
-        echo "No input received, exiting.";
-        return 1;
-    fi;
-    echo "Processing your query...";
-    qa_debug "Sending query: $input";
+qa_short() {
+    local input="$@"
+    local api_endpoint="https://api.openai.com/v1/chat/completions"
+    local response data
 
-    # Escape newlines for JSON compatibility
-    input_escaped=$(echo "$input" | awk '{ printf "%s\\n", $0 }' | tr -d '\n')
+    [[ -z "$input" ]] && return 1
+
+    data="{\"model\": \"$(< "$_QA_ENGINE_FILE")\", \
+          \"messages\": [{\"role\": \"user\", \"content\": \"$input\"}]}"
+    response=$(curl -s --connect-timeout 10 -X POST "$api_endpoint" \
+              -H "Authorization: Bearer $(< "$_OPENAI_API_FILE")" \
+              -H "Content-Type: application/json" -d "$data")
+
+    echo "$response" | jq -r '.choices[0].message.content'
+}
+
+qa_query ()
+{
+    local api_endpoint="https://api.openai.com/v1/chat/completions"
+    local db="$QA_DIR/db"
+    local id=$(date +%s)
+    local _QA_ENGINE=$(cat "$_QA_ENGINE_FILE")
+    local _OPENAI_API=$(cat "$_OPENAI_API_FILE")
+
+    echo "Enter your query, press Ctrl-D when done:"
+    local input=$(cat)  # Read entire input as-is
+    echo "Processing your query..."
+    echo "$input" > "$db/$id.prompt"
+    input=$(_qa_sanitize_input "$input")
+    local data
+    data=$(jq -nc --arg model "$_QA_ENGINE" \
+                   --arg content "$input" \
+   '{model: $model, messages: [{role: "user", content: $content}]}')
+    echo "$data" > "$db/$id.data"
+
+    # Construct curl command using an array
+    local curl_cmd=(
+        curl -s --connect-timeout 10 -X POST "$api_endpoint"
+        -H "Authorization: Bearer $_OPENAI_API"
+        -H "Content-Type: application/json" -d "$data"
+    )
+
+    local response
+    response=$("${curl_cmd[@]}")
+
+    if [ $? -ne 0 ]; then
+        echo "Curl command failed. Check the API endpoint cconnection."
+        return 1
+    fi
+
+    echo "$response" > "$db/$id.response"
+    local answer=$(echo "$response" | jq -r '.choices[0].message.content')
+
+    if [[ -z "$answer" || "$answer" == "null" ]]; then
+        "No valid answer received or response is null."  > "$db/$id.answer"
+        return 1
+    fi
+
+    echo "$answer" > "$db/$id.answer"
+    ln -sf "$db/$id.answer" "$QA_DIR/last_answer"
     
-    data=$(jq -nc --arg model "$(cat $_QA_ENGINE_FILE)" --arg content "$input_escaped" '{model: $model, messages: [{role: "user", content: $content}]}');
-    qa_debug "Formulated data: $data";
-    response=$(curl -s --connect-timeout 10 -X POST "$api_endpoint" -H "Authorization: Bearer $(< $_OPENAI_API_FILE)" -H "Content-Type: application/json" -d "$data" 2>> "$error_output");
-    qa_debug "Full response: $response";
-    answer=$(echo "$response" | jq -r '.choices[0].message.content');
+} 
 
-    # Escape newlines in the answer
-    answer_escaped=$(echo "$answer" | awk '{ printf "%s\\n", $0 }' | tr -d '\n')
+_qa_sanitize_input()
+{
+    local input=$1
+    # 1. Remove leading and trailing whitespace
+    input=$(echo "$input" | awk '{$1=$1};1')
 
-    if [[ -z "$answer_escaped" || "$answer_escaped" == "null" ]]; then
-        qa_debug "No valid answer received or response is null.";
-        return 1;
-    fi;
-    echo "$answer" > "$QA_DIR/last_answer";
-    echo "$input" >> "$QA_DIR/query_log";
-    echo "$answer" >> "$QA_DIR/answer_log";
+    # 2. Remove non-printable characters
+    input=$(echo "$input" | tr -cd '[:print:]')
 
-    # Create JSON entry with escaped newlines
-    json_entry=$(jq -nc --arg query_delta "$input_escaped" --arg answer "$answer_escaped" '{query_delta: $query_delta, answer: $answer}')
-    echo "$json_entry" >> "$QA_DIR/answers.json";
-    qa_debug "Answer: $answer";
-    echo -e "Your query:\n$input\n\nAnswer:\n$answer"
+    # 3. Escape special characters
+    #   Note: This is not a complete list of special characters
+    input=$(echo "$input" | sed -e 's/"/\\\\"/g')
+
+    # 4. Replace line breaks with \n
+    input=$(echo "$input" | tr '\\n' ' ')
+
+    # 5. Additional custom sanitation can be added here
+    echo "$input"
 }
 
 qa_escape_newlines() {
@@ -149,6 +181,10 @@ qa_select_engine() {
 
 # Initialize system
 qa_init() {
+
+    # Ensure the db directory exists
+    mkdir -p "$QA_DIR/db"       # all queries and responses
+
     if [ -f "$_OPENAI_API_FILE" ]; then
         OPENAI_API=$(cat "$_OPENAI_API_FILE")
     fi
@@ -171,7 +207,7 @@ qa_reset() {
 
 MAX_LOG_LINES=1000
 qa_log() {
-    local message=$1
+    local message="$@"
     _QA_LOG=$QA_DIR/qa.log
     # Append new message with timestamp to the log file
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $message" >> "$_QA_LOG"
@@ -190,18 +226,77 @@ qa_log_show(){
    cat $_QA_LOG
 }
 
-a ()
+a_old ()
 {
     cat "$QA_DIR/last_answer"
 }
 
-as() {
-    cat "$QA_DIR/answer_log"
+_qa_validate_input ()
+{
+    local index=$1
+    local array_length=$2
+
+    if [[ -z "$index" ]] ||   # Check if index is empty
+       [[ ! "$index" =~ ^-?[0-9]+$ ]] ||   # Check if index is not a number
+       [[ "$index" -lt 0 ]] ||   # Check if index is negative
+       [[ "$index" -ge "$array_length" ]];   # Check if index is out of range
+    then
+        echo "Invalid index"
+        return 1
+    fi
+
+    return 0
 }
 
-aj(){
-    cat "$QA_DIR/answers.json"
+
+a ()
+{
+    # get the last answer
+    local db="$QA_DIR/db"
+    local files=($(ls $db/*.answer | sort -n))
+    local index=$((${#files[@]}-1))
+    cat "${files[$index]}"
 }
 
-# Main
+aq ()
+{
+    local index=$(_qa_sanitize_index $1)
+    local db="$QA_DIR/db"
+    local files=($(ls $db/*.prompt | sort -n))
+
+    _qa_validate_input "$index" "${#files[@]}" || return
+    #cat "${files[$index]}" | jq -r '.messages[0].content'
+    cat "${files[$index]}" 
+}
+
+_qa_sanitize_index ()
+{
+    local index=$1
+    if [[ -z "$index" ]]; then
+	     index=0
+    fi
+    echo "$index"
+}
+
+qa_responses ()
+{
+    local db="$QA_DIR/db"
+    local listing=$(ls -1 "$db"/*.response)
+    local filenames=""
+    readarray -t filenames <<< "$listing"
+    for i in "${!filenames[@]}"
+    do
+        local msg=$(head -n 1 "${filenames[$i]}")
+        echo "$((i+1))) ${filenames[$i]}: $msg"
+    done
+}
+
+qa_db_nuke(){
+	 # check if the user is sure
+    read -p "Delete all queries and responses? [y/N] " -n 1 -r
+    local db="$QA_DIR/db"
+    rm -rf "$db"
+    mkdir -p "$db"
+    echo ""
+}
 qa_init
