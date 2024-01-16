@@ -254,7 +254,9 @@ a ()
     # get the last answer
     local db="$QA_DIR/db"
     local files=($(ls $db/*.answer | sort -n))
-    local index=$((${#files[@]}-1))
+    local last=$((${#files[@]}-1))
+    local indexFromLast=$(_qa_sanitize_index $1)
+    local index=$(($last-$indexFromLast))
     cat "${files[$index]}"
 }
 
