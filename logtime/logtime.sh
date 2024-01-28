@@ -234,15 +234,6 @@ logtime-status(){
   echo
 }
 
-logtime-marks-filter ()
-{
-    start=${1:-0};
-    end=${2:-$LT_MAX_MARKS};
-    (( start++ ))
-    (( end++ ))
-    awk "NR <= $end && NR >= $start"
-}
-
 logtime-marks(){
   IFS_ORIG=$IFS
   IFS=$"\n"
