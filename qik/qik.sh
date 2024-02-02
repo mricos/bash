@@ -5,6 +5,7 @@ QIKREMOTEHOST=localhost
 QIKREMOTEDIR=~/qik/logan/p3
 
 qik(){
+  mkdir -p ./.qik
   if [[ $# > 0 ]]; then  # always do this
     TS=$(date +%s)
     echo "Qik'd $1 with TS=$TS"
