@@ -1,4 +1,4 @@
-source $(dirname $BASH_SOURCE)/wacom-set.sh
+source $(dirname $BASH_SOURCE)/src/wacom_set.sh
 
 wacom-xrand(){
     xrandr
