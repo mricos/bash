@@ -1,6 +1,6 @@
 source $(dirname $BASH_SOURCE)/src/wacom_set.sh
 
-wacom-xrand(){
+wacom_xrand(){
     xrandr
 cat <<EOF
 #  xrandr reports W x H at X + Y aka 
@@ -10,7 +10,7 @@ cat <<EOF
 EOF
 }
 
-wacom-calc-ratio(){
+wacom_calc_ratio(){
       #pad_geom=($(xsetwacom --get $WACOM_STYLUS_ID Area)) #x,y,w,h
       pad=(0 0 15200 9500 ) #x,y,w,h # w:h = 1.6
       mon=(0 0 1920 1080) #x,y,w,h # 1.78
@@ -23,11 +23,11 @@ wacom-calc-ratio(){
       echo "1920-1728 = 192"
       echo "limit screen 192 pixels on right to make ratio 1.6"
       echo "to set entire pad to scren area:"
-      echo "wacom-map-to-output 0 0 1782 1080"
-      echo "wacom-map-to-output 192 0 1920 1080"
+      echo "wacom_map_to_output 0 0 1782 1080"
+      echo "wacom_map_to_output 192 0 1920 1080"
 }
 
-wacom-map-to-output(){
+wacom_map_to_output(){
   cat <<EOF
   MapToOutput [output]
               Map  the  tablet's  input  area to a given output (e.g. "VGA1").
@@ -35,9 +35,8 @@ wacom-map-to-output(){
               the  XRandR  extension,  or  an  X11 geometry string of the form
               WIDTHxHEIGHT+X+Y. 
 EOF
-    x=$1; y=$2; w=$3; h=$4;
+    x=$3; y=$4; w=$1; h=$2;
     echo xsetwacom set $WACOM_STYLUS_ID MapToOutput "${w}x${h}+$x+$y"
-
     xsetwacom set $WACOM_STYLUS_ID MapToOutput "${w}x${h}+$x+$y"
 }
 
@@ -49,7 +48,7 @@ wacom-list(){
   xsetwacom --list devices
 }
 
-wacom-set-env(){
+wacom_set_env(){
     # regex uses matched group ()
     #  -P   -  perl extenstion for matched group
     #  -o   -  only output matched (not entire line)
@@ -71,7 +70,7 @@ wacom-set-env(){
     export WACOM_AREA=($(xsetwacom --get $WACOM_STYLUS_ID Area ))
 }
 
-wacom-notes(){
+wacom_notes(){
 cat <<EOF
 mricos@ux305-2:~/mnt/ux305-3$ xsetwacom --list parameters
 Important Parameters
@@ -144,4 +143,4 @@ ScrollDistance   - Minimum motion before sending a scroll gesture
 EOF
 }
 
-wacom-set-env
+wacom_set_env
