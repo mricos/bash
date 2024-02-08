@@ -16,5 +16,3 @@ alias peek="logtime-stack-peek"
 alias mark-undo="logtime-mark-undo"
 alias store="logtime-store"
 alias status="logtime-status"
-# Create an alias for the 'date' command based on the operating system
-    alias date='gdate'
