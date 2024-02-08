@@ -1,10 +1,12 @@
 #!/bin/bash
+source $(dirname $BASH_SOURCE)/src/formatting.sh
 
 # Directory for storing logs and configurations
 QA_DIR="$HOME/.qa"
 alias q='qa_short'
 alias qq='qa_query'
-alias margin='qa_margin'
+alias margin='qa_margin 2 2 2 4'
+alias colorjs='qa_colorize_js_code'
 alias db="ls $QA_DIR/db"
 
 # Default configurations overwriten by init()
