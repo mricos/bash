@@ -51,9 +51,14 @@ wacom_set_3415_tight_portrait(){
 wacom_set_asus_laptop(){
     wacom_map_to_output 192 1080 1728 1080
 }
-wacom_set_asus_monitor_right(){
+wacom_set_asus_monitor_right_center(){
     wacom_map_to_output 1728 1080 $((1920+192/2)) 0 
 }
+
+wacom_set_asus_monitor_right(){
+    wacom_map_to_output 1728 1080 $((1920+192)) 0
+}
+
 
 wacom_set_3415_laptop(){
   # screen 1080x1920 =>  width:height=1.78
