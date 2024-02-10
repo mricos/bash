@@ -6,7 +6,7 @@ QA_DIR="$HOME/.qa"
 alias q='qa_short'
 alias qq='qa_query'
 alias margin='qa_margin 2 2 2 4'
-alias colorjs='qa_colorize_js_code'
+alias colorcode='qa_colorize_code'
 alias db="ls $QA_DIR/db"
 
 # Default configurations overwriten by init()
