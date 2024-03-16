@@ -260,7 +260,6 @@ qa_margin() {
   done
 }
 
-
 a_old ()
 {
     cat "$QA_DIR/last_answer"
@@ -281,6 +280,16 @@ _qa_validate_input ()
     fi
 
     return 0
+}
+
+qa_file_to_id() {
+    local file="$1"
+    if [[ -L "$file" ]]; then
+        file=$(readlink -f "$file")
+    fi
+    local filename=$(basename "$file")
+    local id=$(echo "$filename" | cut -d '.' -f 1)
+    echo "$id"
 }
 
 

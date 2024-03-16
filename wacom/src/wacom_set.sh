@@ -69,3 +69,7 @@ wacom_set_3415_laptop(){
   xsetwacom set 18 MapToOutput eDP-1
   xsetwacom set 12  Area 0 0 21600 12148 
 }
+
+wacom_set_portable_screen(){
+  xsetwacom set $WACOM_STYLUS_ID MapToOutput HDMI-1
+}

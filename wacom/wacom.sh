@@ -11,13 +11,19 @@ EOF
 }
 
 wacom_calc_ratio(){
-      #pad_geom=($(xsetwacom --get $WACOM_STYLUS_ID Area)) #x,y,w,h
-      pad=(0 0 15200 9500 ) #x,y,w,h # w:h = 1.6
-      mon=(0 0 1920 1080) #x,y,w,h # 1.78
-      echo "Pad Area " ${pad[@]}
-      echo "Pad w:h " $( jq -n ${pad[2]}/${pad[3]} )
+    local stylus=$(xsetwacom --list | \
+                        grep stylus | \
+                            cut -f2 | \
+                            cut -d' ' -f2)
+    local stylusGeo=($(xsetwacom --get $stylus AREA )) 
+      #mon=(0 0 1920 1080) #x,y,w,h # 1.78
+      mon=(0 0 3440 1440) #x,y,w,h # 1.78
+      echo "Pad Area " ${stylusGeo[@]}
+      echo "Pad w:h " $( jq -n ${stylusGeo[2]}/${stylusGeo[3]} )
       echo "Monitor w:h  " $( jq -n ${mon[2]}/${mon[3]} | \
                               jq '.*1000 | round | ./1000')
+
+      echo "Example for 1920x1080"
       echo "1080*1.7 = 1920"
       echo "1080*1.6 = 1728"
       echo "1920-1728 = 192"
@@ -143,4 +149,48 @@ ScrollDistance   - Minimum motion before sending a scroll gesture
 EOF
 }
 
+wacom_set_3415_right(){
+    local h=1440
+    local w=$(( $h * 16 / 10 ))
+    local x=$(( 3440 - $w ))   # shift it to the right
+    local y=0                  # dont shift down
+    echo "Using h,w = $h,$w"
+    
+    echo xsetwacom set $WACOM_STYLUS_ID MapToOutput "${w}x${h}+$x+$y"
+    xsetwacom set $WACOM_STYLUS_ID MapToOutput "${w}x${h}+$x+$y"
+}
+
+wacom_reset_area(){
+    echo xsetwacom set $WACOM_STYLUS_ID ResetArea
+    xsetwacom set $WACOM_STYLUS_ID ResetArea
+    xsetwacom set $WACOM_STYLUS_ID Rotate none
+}
+
+wacom_rotate_half(){
+    xsetwacom set $WACOM_STYLUS_ID Rotate half
+}
+
+wacom_rotate_none(){
+    xsetwacom set $WACOM_STYLUS_ID Rotate none
+}
+
+wacom_set_3415_stylus_wide(){
+    wacom_reset_area
+    # Cant resize and rotate. Use inverted coordinates 
+    # for Wacom Area instead.
+    #xsetwacom set $WACOM_STYLUS_ID Rotate half # left handed
+    padW=$(( ${WACOM_AREA[2]} ))
+    padH=$(( ${WACOM_AREA[3]} ))
+    padH_new=$(( $padW * 10 / 23 )) # divide by 2.3 using integers
+    local w=3440
+    local h=1440
+    local x=0                  # shift it to the right
+    local y=$((0))                  # dont shift down
+    padH_diff=$(( $padH - $padH_new ))
+    echo "Using Monitor h,w = $h,$w"
+    echo "Pad padH=$padH,padH_new=$padH_new, padHdiff=$padH_diff, padW=$padW"
+    echo xsetwacom set $WACOM_STYLUS_ID Area $padW $padH 0 6072
+    xsetwacom set $WACOM_STYLUS_ID Area $padW $padH 0 $padH_diff 
+    xsetwacom set $WACOM_STYLUS_ID MapToOutput "${w}x${h}+$x+$y"
+}
 wacom_set_env
