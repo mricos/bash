@@ -10,7 +10,8 @@ alias colorcode='qa_colorize_code'
 alias db="ls $QA_DIR/db"
 
 # Default configurations overwriten by init()
-QA_ENGINE="gpt-3.5-turbo"         # Default engine
+_QA_ENGINE="gpt-3.5-turbo"         # Default engine
+_QA_ENGINE_ALT="gpt-4-turbo"         # Default engine
 QA_CONTEXT="Two sentences only."  # Example default context
 
 _QA_ENGINE_FILE="$QA_DIR/engine"
@@ -22,33 +23,28 @@ qa_test(){
   a
 }
 
-qa_short() {
-    local input="$@"
-    local api_endpoint="https://api.openai.com/v1/chat/completions"
-    local response data
-
-    [[ -z "$input" ]] && return 1
-
-    data="{\"model\": \"$(< "$_QA_ENGINE_FILE")\", \
-          \"messages\": [{\"role\": \"user\", \"content\": \"$input\"}]}"
-    response=$(curl -s --connect-timeout 10 -X POST "$api_endpoint" \
-              -H "Authorization: Bearer $(< "$_OPENAI_API_FILE")" \
-              -H "Content-Type: application/json" -d "$data")
-
-    echo "$response" | jq -r '.choices[0].message.content'
+alias qqb="qa_query_alt"
+qa_query_alt(){
+    local orig="$_QA_ENGINE";
+    _QA_ENGINE=$_QA_ENGINE_ALT
+    qa_query "$@"
+    _QA_ENGINE="$orig"
 }
 
 qa_query ()
 {
+    echo "Using $_QA_ENGINE" >&2
     local api_endpoint="https://api.openai.com/v1/chat/completions"
     local db="$QA_DIR/db"
     local id=$(date +%s)
-    local _QA_ENGINE=$(cat "$_QA_ENGINE_FILE")
-    local _OPENAI_API=$(cat "$_OPENAI_API_FILE")
+    if [ ! -z "$1" ]; then
+        local input="$@"
+    else
+        echo "Enter your query, press Ctrl-D when done:"
+        local input=$(cat)  # Read entire input as-is
+        echo "Processing your query..."
+    fi
 
-    echo "Enter your query, press Ctrl-D when done:"
-    local input=$(cat)  # Read entire input as-is
-    echo "Processing your query..."
     echo "$input" > "$db/$id.prompt"
     input=$(_qa_sanitize_input "$input")
     local data
@@ -82,6 +78,11 @@ qa_query ()
 
     echo "$answer" > "$db/$id.answer"
     ln -sf "$db/$id.answer" "$QA_DIR/last_answer"
+
+    # If cli was not empty then we are answering 
+    # a short question so print it out.
+    # Multiline responses do not print automatically.
+    [ ! -z "$1" ] && echo "$answer"
     
 } 
 
@@ -144,8 +145,8 @@ qa_status() {
 
 # Set the API key for the Q&A engine
 qa_set_apikey() {
-    OPENAI_API="$1"
-    echo "$OPENAI_API" > "$_OPENAI_API_FILE"
+    _OPENAI_API="$1"
+    echo "$_OPENAI_API" > "$_OPENAI_API_FILE"
 }
 
 # Set the Q&A engine (default: OpenAI)
@@ -162,9 +163,8 @@ qa_set_context() {
 
 # Function to list and select an engine from OpenAI's available engines
 qa_select_engine() {
-
     local engines=$(curl -s \
-      -H "Authorization: Bearer $OPENAI_API" \
+      -H "Authorization: Bearer $_OPENAI_API" \
       "https://api.openai.com/v1/engines")
 
     echo "Available Engines:"
@@ -189,7 +189,7 @@ qa_init() {
     mkdir -p "$QA_DIR/db"       # all queries and responses
 
     if [ -f "$_OPENAI_API_FILE" ]; then
-        OPENAI_API=$(cat "$_OPENAI_API_FILE")
+       _OPENAI_API=$(cat "$_OPENAI_API_FILE")
     fi
     if [ -f "$_QA_ENGINE_FILE" ]; then
         _QA_ENGINE=$(cat "$_QA_ENGINE_FILE")
