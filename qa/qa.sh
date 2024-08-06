@@ -3,7 +3,7 @@ source $(dirname $BASH_SOURCE)/src/formatting.sh
 
 # Directory for storing logs and configurations
 QA_DIR="$HOME/.qa"
-alias q='qa_short'
+alias q='qa_query'
 alias qq='qa_query'
 alias margin='qa_margin 2 2 2 4'
 alias colorcode='qa_colorize_code'
