@@ -1,12 +1,9 @@
 #!/bin/bash
-source $(dirname $BASH_SOURCE)/src/formatting.sh
-
+#source $(dirname $BASH_SOURCE)/src/formatting.sh
 # Directory for storing logs and configurations
 QA_DIR="$HOME/.qa"
 alias q='qa_query'
 alias qq='qa_query'
-alias margin='qa_margin 2 2 2 4'
-alias colorcode='qa_colorize_code'
 alias db="ls $QA_DIR/db"
 
 # Default configurations overwriten by init()
@@ -17,6 +14,7 @@ QA_CONTEXT="Two sentences only."  # Example default context
 _QA_ENGINE_FILE="$QA_DIR/engine"
 _QA_CONTEXT_FILE="$QA_DIR/context"
 _OPENAI_API_FILE="$QA_DIR/api_key"
+
 
 qa_test(){
   q what is the fastest land animal?
@@ -207,8 +205,8 @@ qa_reset() {
     echo "Reset complete: answers.json and last_answer have been cleared."
 }
 
-
 MAX_LOG_LINES=1000
+
 qa_log() {
     local message="$@"
     _QA_LOG=$QA_DIR/qa.log
@@ -221,48 +219,8 @@ qa_log() {
     mv "$_QA_LOG.tmp" "$_QA_LOG"
 }
 
-qa_debug(){
-   true && qa_log "[debug] $@"
-}
-
 qa_log_show(){
    cat $_QA_LOG
-}
-
-qa_margin() {
-  top=$1
-  right=$2
-  bottom=$3
-  left=$4
- 
-  # Calculate the number of blank lines based on the top argument
-  for (( i=0; i<top; i++ )); do
-    echo
-  done
-
-  # Calculate the desired width for text formatting
-  # This calculation considers both left and right margins
-  let text_width=$COLUMNS-$left-$right
-
-  # Check if calculated text width is positive
-  if [ $text_width -le 0 ]; then
-    echo "Error: Left and right margins exceed the available column width."
-    return 1
-  fi
-
-  # Use sed to add left margin by padding spaces to the beginning of each line
-  # Then use fmt to wrap text according to the calculated width
-  sed "s/^/$(printf '%*s' $left)/" | fmt -w $text_width
-
-  # Calculate the number of blank lines based on the bottom argument
-  for (( j=0; j<bottom; j++ )); do
-    echo
-  done
-}
-
-a_old ()
-{
-    cat "$QA_DIR/last_answer"
 }
 
 _qa_validate_input ()
@@ -304,18 +262,6 @@ a ()
     cat "${files[$index]}"
 }
 
-aq ()
-{
-    local index=$(_qa_sanitize_index $1)
-    local db="$QA_DIR/db"
-    local files=($(ls $db/*.prompt | sort -n))
-
-    _qa_validate_input "$index" "${#files[@]}" || return
-    #cat "${files[$index]}" | jq -r '.messages[0].content'
-    cat "${files[$index]}" 
-}
-
-
 _qa_sanitize_index ()
 {
     local index=$1
@@ -346,4 +292,65 @@ qa_db_nuke(){
     mkdir -p "$db"
     echo ""
 }
+
 qa_init
+
+QA_MARGIN=${QA_MARGIN:-auto}
+QA_SPACING=${QA_SPACING:-1}
+QA_TOP=${QA_TOP:-2}
+QA_BOTTOM=${QA_BOTTOM:-3}
+QA_WIDTH=${QA_WIDTH:-65}
+
+
+fa_init() {
+    QA_MARGIN=auto
+    QA_SPACING=1
+    QA_TOP=2
+    QA_BOTTOM=3
+QA_WIDTH=65
+}
+
+fa_env(){
+    echo "QA_MARGIN=$QA_MARGIN"
+    echo "QA_SPACING=$QA_SPACING"
+    echo "QA_TOP=$QA_TOP"
+    echo "QA_BOTTOM=$QA_BOTTOM"
+    echo "QA_WIDTH=$QA_WIDTH"
+}
+fa() 
+{ 
+    local lookback=${1:-0}
+    local width=${2:-$QA_WIDTH}
+    local margin=${3:-$QA_MARGIN}
+    local spacing=${4:-$QA_SPACING}
+    local top=${5:-$QA_TOP}
+    local bottom=${6:-$QA_BOTTOM}
+
+    # Calculate margin based on the provided parameter, fallback to auto if not set
+    if [ "$margin" = "auto" ] || [ -z "$margin" ]; then
+        margin=$(( ($COLUMNS - $width) / 2 ))
+    fi
+
+    MARGIN=$(printf '%*s' "$margin" '')
+
+    a $lookback | glow -s dark -w $width | \
+    awk \
+    -v margin="$MARGIN" \
+    -v spacing="$spacing" \
+    -v top="$top" \
+    -v bottom="$bottom" \
+    '
+    BEGIN {
+        for (i = 0; i < top; i++) print margin
+    }
+    {
+        print margin $0
+        if (NR < NF) {
+            for (i = 0; i < spacing-1; i++) print margin
+        }
+    }
+    END {
+        for (i = 0; i < bottom; i++) print margin
+    }
+    ' | less -R
+}
