@@ -295,6 +295,8 @@ qa_db_nuke(){
 
 qa_init
 
+#> FORMATTING
+
 QA_MARGIN=${QA_MARGIN:-auto}
 QA_SPACING=${QA_SPACING:-1}
 QA_TOP=${QA_TOP:-2}
@@ -326,7 +328,7 @@ fa()
     local top=${5:-$QA_TOP}
     local bottom=${6:-$QA_BOTTOM}
 
-    # Calculate margin based on the provided parameter, fallback to auto if not set
+    # margin provided parameter, auto if not set
     if [ "$margin" = "auto" ] || [ -z "$margin" ]; then
         margin=$(( ($COLUMNS - $width) / 2 ))
     fi
