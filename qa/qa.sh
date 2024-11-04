@@ -98,7 +98,8 @@ _qa_sanitize_input()
     input=$(echo "$input" | sed -e 's/"/\\\\"/g')
 
     # 4. Replace line breaks with \n
-    input=$(echo "$input" | tr '\\n' ' ')
+    # input=$(echo "$input" | tr '\\n' ' ')
+    input=$(echo "$input" | tr '\n' ' ')
 
     # 5. Additional custom sanitation can be added here
     echo "$input"
@@ -355,4 +356,20 @@ fa()
         for (i = 0; i < bottom; i++) print margin
     }
     ' | less -R
+}
+
+# refactor to use  _get_file
+# should take lookback
+# if narg = 1, lookback=0, grade=$1
+# if narg = 2, lookback=$1, grade=$2
+ga(){
+    local lookback=${1:-0}
+    local grade=${2:-0}
+    local db="$QA_DIR/db"
+    local files=($(ls $db/*.answer | sort -n))
+    local last=$((${#files[@]}-1))
+    local indexFromLast=$(_qa_sanitize_index $lookback)
+    local index=$(($last-$indexFromLast))
+    echo  $grade >"${files[$index]}.grade"
+    #echo ${files[$index]}.grade
 }
