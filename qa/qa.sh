@@ -1,15 +1,16 @@
 #!/bin/bash
+
 #source $(dirname $BASH_SOURCE)/src/formatting.sh
-# Directory for storing logs and configurations
+# Directory for storing data and configurations
 QA_DIR="$HOME/.qa"
-alias q='qa_query'
+#alias q='qa_query'
 alias qq='qa_query'
 alias db="ls $QA_DIR/db"
 
 # Default configurations overwriten by init()
-_QA_ENGINE="gpt-3.5-turbo"         # Default engine
-_QA_ENGINE_ALT="gpt-4-turbo"         # Default engine
-QA_CONTEXT="Two sentences only."  # Example default context
+_QA_ENGINE="gpt-3.5-turbo"             # Default engine
+_QA_ENGINE_ALT="gpt-4-turbo"           # Default alt engine
+QA_CONTEXT="Write smart, dry answers"  # Example default context
 
 _QA_ENGINE_FILE="$QA_DIR/engine"
 _QA_CONTEXT_FILE="$QA_DIR/context"
@@ -17,7 +18,7 @@ _OPENAI_API_FILE="$QA_DIR/api_key"
 
 
 qa_test(){
-  q what is the fastest land animal?
+  qq what is the fastest land animal?
   a
 }
 
@@ -28,6 +29,7 @@ qa_query_alt(){
     qa_query "$@"
     _QA_ENGINE="$orig"
 }
+QA_CONTEXT="Write smart, dry answers"  # Example default context
 
 qa_query ()
 {
@@ -105,14 +107,6 @@ _qa_sanitize_input()
     echo "$input"
 }
 
-qa_escape_newlines() {
-    awk '{ printf "%s\\n", $0 }' | tr -d '\n'
-}
-
-qa_unescape_newlines() {
-    while IFS= read -r line; do printf '%b\n' "$line"; done
-}
-
 # Show documentation
 qa_docs() {
     cat <<EOF
@@ -124,9 +118,6 @@ qa_set_apikey    - Set the API key for the Q&A engine.
 qa_set_engine    - Set the Q&A engine (default: OpenAI).
 qa_set_context   - Set default context for queries.
 qa_select_engine - Select the engine from available OpenAI engines.
-qa_reset         - Resets history in $QA_DIR (~/.qa by default)
-qa_log           - Log a message to the log $QA_DIR/qa.log
-qa_log_show      - Show debug log
 q                - Query with detailed output
 a                - Most recent answer
 as               - All answers
@@ -160,7 +151,7 @@ qa_set_context() {
     echo "$_QA_CONTEXT" > "$_QA_CONTEXT_FILE"
 }
 
-# Function to list and select an engine from OpenAI's available engines
+# List and select an engine from OpenAI's available engines
 qa_select_engine() {
     local engines=$(curl -s \
       -H "Authorization: Bearer $_OPENAI_API" \
@@ -196,32 +187,7 @@ qa_init() {
     if [ -f "$_QA_CONTEXT_FILE" ]; then
         _QA_CONTEXT=$(cat "$_QA_CONTEXT_FILE")
     fi
-    qa_set_context "$_QA_CONTEXT"  # Log initial context
-}
-
-qa_reset() {
-    # Reset function to clear out answers.json and last_answer
-    > "$QA_DIR/answers.json"  # Clear the answers.json file
-    > "$QA_DIR/last_answer"   # Clear the last_answer file
-    echo "Reset complete: answers.json and last_answer have been cleared."
-}
-
-MAX_LOG_LINES=1000
-
-qa_log() {
-    local message="$@"
-    _QA_LOG=$QA_DIR/qa.log
-    # Append new message with timestamp to the log file
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - $message" >> "$_QA_LOG"
-
-    # Trim the log file to keep only the last MAX_LOG_LINES lines
-    # This creates a temporary file to hold the trimmed content
-    tail -n $MAX_LOG_LINES "$_QA_LOG" > "$_QA_LOG.tmp"
-    mv "$_QA_LOG.tmp" "$_QA_LOG"
-}
-
-qa_log_show(){
-   cat $_QA_LOG
+    qa_set_context "$_QA_CONTEXT"  # Set initial context
 }
 
 _qa_validate_input ()
@@ -252,7 +218,19 @@ qa_file_to_id() {
 }
 
 
-a ()
+q()
+{
+    # get the last question
+    local db="$QA_DIR/db"
+    local files=($(ls $db/*.prompt | sort -n))
+    local last=$((${#files[@]}-1))
+    local indexFromLast=$(_qa_sanitize_index $1)
+    local index=$(($last-$indexFromLast))
+    cat "${files[$index]}"
+}
+
+
+a()
 {
     # get the last answer
     local db="$QA_DIR/db"
@@ -294,7 +272,6 @@ qa_db_nuke(){
     echo ""
 }
 
-qa_init
 
 #> FORMATTING
 
@@ -320,7 +297,30 @@ fa_env(){
     echo "QA_BOTTOM=$QA_BOTTOM"
     echo "QA_WIDTH=$QA_WIDTH"
 }
-fa() 
+
+fa() {
+    # Set default values for parameters, allowing overrides
+    local lookback=${1:-0}
+    local width=${2:-$QA_WIDTH}
+    local margin=${3:-$QA_MARGIN}
+    local spacing=${4:-$QA_SPACING}
+    local top=${5:-$QA_TOP}
+    local bottom=${6:-$QA_BOTTOM}
+
+    # Calculate margin if not explicitly set or if set to 'auto'
+    if [ "$margin" = "auto" ] || [ -z "$margin" ]; then
+        margin=$(( ($COLUMNS - $width) / 2 ))
+    fi
+
+    # Generate the margin string
+    MARGIN=$(printf '%*s' "$margin" '')
+
+    # Pipe the output of the `a` command through `glow` for styling,
+    # then apply custom formatting with `awk`, and display with `less`.
+    a $lookback | glow --pager -s dark -w "$width"
+}
+
+fa_ORIG() 
 { 
     local lookback=${1:-0}
     local width=${2:-$QA_WIDTH}
@@ -373,3 +373,5 @@ ga(){
     echo  $grade >"${files[$index]}.grade"
     #echo ${files[$index]}.grade
 }
+
+qa_init
