@@ -149,6 +149,17 @@ ScrollDistance   - Minimum motion before sending a scroll gesture
 EOF
 }
 
+wacom_set_3415_left(){
+    local h=${1:-1440}
+    local w=$(( h * 16 / 10 ))  # maintain 16:10 aspect ratio
+    local x=0                   # shift to the left (no horizontal offset)
+    local y=0                   # no vertical shift
+    echo "Using h,w = $h,$w"
+    echo xsetwacom set $WACOM_STYLUS_ID MapToOutput "${w}x${h}+$x+$y"
+    xsetwacom set $WACOM_STYLUS_ID MapToOutput "${w}x${h}+$x+$y"
+}
+
+
 wacom_set_3415_right(){
     local h=1440
     local w=$(( $h * 16 / 10 ))
