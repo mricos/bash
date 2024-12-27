@@ -295,7 +295,7 @@ QA_WIDTH=65
 fa() {
     # Set default values for parameters, allowing overrides
     local lookback=${1:-0}
-
+    local width=${2:-$((COLUMNS - 8 ))}
     a $lookback | glow --pager -s dark -w "$width"
 }
 
