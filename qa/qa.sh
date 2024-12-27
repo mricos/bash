@@ -3,8 +3,9 @@
 #source $(dirname $BASH_SOURCE)/src/formatting.sh
 # Directory for storing data and configurations
 QA_DIR="$HOME/.qa"
-#alias q='qa_query'
 alias qq='qa_query'
+alias q1='_QA_ENGINE_ALT=gpt-3.5-turbo; qa_query_alt'
+alias q2='_QA_ENGINE_ALT=gpt-4o-mini; qa_query_alt'
 alias db="ls $QA_DIR/db"
 
 # Default configurations overwriten by init()
@@ -290,72 +291,12 @@ fa_init() {
 QA_WIDTH=65
 }
 
-fa_env(){
-    echo "QA_MARGIN=$QA_MARGIN"
-    echo "QA_SPACING=$QA_SPACING"
-    echo "QA_TOP=$QA_TOP"
-    echo "QA_BOTTOM=$QA_BOTTOM"
-    echo "QA_WIDTH=$QA_WIDTH"
-}
 
 fa() {
     # Set default values for parameters, allowing overrides
     local lookback=${1:-0}
-    local width=${2:-$QA_WIDTH}
-    local margin=${3:-$QA_MARGIN}
-    local spacing=${4:-$QA_SPACING}
-    local top=${5:-$QA_TOP}
-    local bottom=${6:-$QA_BOTTOM}
 
-    # Calculate margin if not explicitly set or if set to 'auto'
-    if [ "$margin" = "auto" ] || [ -z "$margin" ]; then
-        margin=$(( ($COLUMNS - $width) / 2 ))
-    fi
-
-    # Generate the margin string
-    MARGIN=$(printf '%*s' "$margin" '')
-
-    # Pipe the output of the `a` command through `glow` for styling,
-    # then apply custom formatting with `awk`, and display with `less`.
     a $lookback | glow --pager -s dark -w "$width"
-}
-
-fa_ORIG() 
-{ 
-    local lookback=${1:-0}
-    local width=${2:-$QA_WIDTH}
-    local margin=${3:-$QA_MARGIN}
-    local spacing=${4:-$QA_SPACING}
-    local top=${5:-$QA_TOP}
-    local bottom=${6:-$QA_BOTTOM}
-
-    # margin provided parameter, auto if not set
-    if [ "$margin" = "auto" ] || [ -z "$margin" ]; then
-        margin=$(( ($COLUMNS - $width) / 2 ))
-    fi
-
-    MARGIN=$(printf '%*s' "$margin" '')
-
-    a $lookback | glow -s dark -w $width | \
-    awk \
-    -v margin="$MARGIN" \
-    -v spacing="$spacing" \
-    -v top="$top" \
-    -v bottom="$bottom" \
-    '
-    BEGIN {
-        for (i = 0; i < top; i++) print margin
-    }
-    {
-        print margin $0
-        if (NR < NF) {
-            for (i = 0; i < spacing-1; i++) print margin
-        }
-    }
-    END {
-        for (i = 0; i < bottom; i++) print margin
-    }
-    ' | less -R
 }
 
 # refactor to use  _get_file
