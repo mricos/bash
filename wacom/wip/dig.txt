@@ -1,0 +1,15 @@
+$ dig cryptochromatic.net
+
+; <<>> DiG 9.20.0-2ubuntu3-Ubuntu <<>> cryptochromatic.net
+;; global options: +cmd
+;; Got answer:
+;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 3855
+;; flags: qr rd ra; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 1
+
+;; OPT PSEUDOSECTION:
+; EDNS: version: 0, flags:; udp: 65494
+;; QUESTION SECTION:
+;cryptochromatic.net.		IN	A
+
+;; ANSWER SECTION:
+cryptochromatic.net.	119	IN	A	138.68.2.192

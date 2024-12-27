@@ -1,4 +1,4 @@
-source $(dirname $BASH_SOURCE)/src/wacom_set.sh
+#source $(dirname $BASH_SOURCE)/src/wacom_set.sh
 
 wacom_xrand(){
     xrandr
@@ -46,7 +46,7 @@ EOF
     xsetwacom set $WACOM_STYLUS_ID MapToOutput "${w}x${h}+$x+$y"
 }
 
-wacom-list(){
+wacom_list(){
   #Wacom Intuos BT M Pen stylus    	id: 11	type: STYLUS    
   #Wacom Intuos BT M Pad pad       	id: 12	type: PAD       
   #Wacom Intuos BT M Pen cursor    	id: 18	type: CURSOR    
@@ -170,6 +170,18 @@ wacom_set_3415_right(){
     echo xsetwacom set $WACOM_STYLUS_ID MapToOutput "${w}x${h}+$x+$y"
     xsetwacom set $WACOM_STYLUS_ID MapToOutput "${w}x${h}+$x+$y"
 }
+wacom_set_3415_monitor(){
+
+    local h=1600
+    local w=$(( $h * 16 / 10 ))
+    local x=0 
+    local y=0 
+    #echo "Using h,w = $h,$w"
+    #echo xsetwacom set $WACOM_STYLUS_ID MapToOutput "${w}x${h}+$x+$y -d HDMI-1"
+    #xsetwacom set $WACOM_STYLUS_ID MapToOutput "${w}x${h}+$x+$y  HDMI-1"
+    xsetwacom set $WACOM_STYLUS_ID MapToOutput HDMI-1
+}
+
 
 wacom_reset_area(){
     echo xsetwacom set $WACOM_STYLUS_ID ResetArea
