@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        #json-container { white-space: pre; }
+    </style>
+    <script>
+        window.addEventListener("load", function() {
+            var socket = new WebSocket("ws://localhost:8080");
+
+            socket.onmessage = function(event) {
+                document.getElementById("json-container").textContent = event.data;
+            };
+
+            socket.onclose = function() {
+                console.log("WebSocket connection closed");
+            };
+        });
+    </script>
+</head>
+<body>
+    <h1>Random JSON Data</h1>
+    <pre id="json-container"></pre>
+</body>
+</html>
+

@@ -1,0 +1,43 @@
+                                           (1680258026668378654, .1, 5, 53, 80)
+
+    0    71 01000111 4
+    1   108 01101100 4
+    2   180 10110100 4
+    3    39 00100111 4
+    4   189 10111101 6
+    5   254 11111110 7
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+sampleSum: 841
+         0    0    0    0    0    0    0    0    1  sum bin event
+         1    7   21   35   35   21    7    1  expected bernouli
+        256  512  768 1024 1280 1536 1792 2048 sum of 8 events 
+
+curSample: 1 curEvent: 8: 246=11110110
+ expectedColVals:    4    4    4    4    4    4    4    4 
+       colTotals:    5    4    4    4    3    4    5    3 
+        colError:    1    0    0    0   -1    0    1   -1 
+      colSqError:    1    0    0    0    1    0    1    1 
+     expectedVar: sum(colSqErr[@])/8 
+          colVar: 0
+        totalVal: 1141
+expectedTotalVal: 1024
+   totalSqValErr: 13689
+
+r-reset, p-pause, q-quit 
