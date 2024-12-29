@@ -2,35 +2,58 @@
 
 #source $(dirname $BASH_SOURCE)/src/formatting.sh
 # Directory for storing data and configurations
+QA_SRC="$HOME/src/mricos/bash/qa/qa.sh"
 QA_DIR="$HOME/.qa"
 alias qq='qa_query'
-alias q1='_QA_ENGINE_ALT=gpt-3.5-turbo; qa_query_alt'
-alias q2='_QA_ENGINE_ALT=gpt-4o-mini; qa_query_alt'
+alias q1='_QA_ENGINE=gpt-3.5-turbo; qa_query'
+alias q2='_QA_ENGINE=gpt-4-turbo; qa_query'
+alias q3='_QA_ENGINE=gpt-4o-mini; qa_query'
 alias db="ls $QA_DIR/db"
 
 # Default configurations overwriten by init()
 _QA_ENGINE="gpt-3.5-turbo"             # Default engine
 _QA_ENGINE_ALT="gpt-4-turbo"           # Default alt engine
-QA_CONTEXT="Write smart, dry answers"  # Example default context
+_QA_CONTEXT="Write smart, dry answers" # Example default context
 
 _QA_ENGINE_FILE="$QA_DIR/engine"
 _QA_CONTEXT_FILE="$QA_DIR/context"
 _OPENAI_API_FILE="$QA_DIR/api_key"
+
+_qa_sanitize_index ()
+{
+    local index=$1
+    if [[ -z "$index" ]]; then
+	     index=0
+    fi
+    echo "$index"
+}
+
+_qa_sanitize_input()
+{
+    local input=$1
+    # 1. Remove leading and trailing whitespace
+    input=$(echo "$input" | awk '{$1=$1};1')
+
+    # 2. Remove non-printable characters
+    input=$(echo "$input" | tr -cd '[:print:]')
+
+    # 3. Escape special characters
+    #   Note: This is not a complete list of special characters
+    input=$(echo "$input" | sed -e 's/"/\\\\"/g')
+
+    # 4. Replace line breaks with \n
+    # input=$(echo "$input" | tr '\\n' ' ')
+    input=$(echo "$input" | tr '\n' ' ')
+
+    # 5. Additional custom sanitation can be added here
+    echo "$input"
+}
 
 
 qa_test(){
   qq what is the fastest land animal?
   a
 }
-
-alias qqb="qa_query_alt"
-qa_query_alt(){
-    local orig="$_QA_ENGINE";
-    _QA_ENGINE=$_QA_ENGINE_ALT
-    qa_query "$@"
-    _QA_ENGINE="$orig"
-}
-QA_CONTEXT="Write smart, dry answers"  # Example default context
 
 qa_query ()
 {
@@ -41,9 +64,9 @@ qa_query ()
     if [ ! -z "$1" ]; then
         local input="$@"
     else
-        echo "Enter your query, press Ctrl-D when done:"
-        local input=$(cat)  # Read entire input as-is
-        echo "Processing your query..."
+        echo "Enter your query, press Ctrl-D when done:" >&2
+        local input=$(cat)  # Read entire input as-is 
+        echo "Processing your query..." >&2
     fi
 
     echo "$input" > "$db/$id.prompt"
@@ -51,8 +74,16 @@ qa_query ()
     local data
     data=$(jq -nc --arg model "$_QA_ENGINE" \
                    --arg content "$input" \
-   '{model: $model, messages: [{role: "user", content: $content}]}')
-    echo "$data" > "$db/$id.data"
+   '{
+     model: $model,
+     messages: [ {
+                   role: "user",
+                   content: $content
+                 }
+               ]
+   }')
+
+   echo "$data" > "$db/$id.data"
 
     # Construct curl command using an array
     local curl_cmd=(
@@ -87,29 +118,8 @@ qa_query ()
     
 } 
 
-_qa_sanitize_input()
-{
-    local input=$1
-    # 1. Remove leading and trailing whitespace
-    input=$(echo "$input" | awk '{$1=$1};1')
-
-    # 2. Remove non-printable characters
-    input=$(echo "$input" | tr -cd '[:print:]')
-
-    # 3. Escape special characters
-    #   Note: This is not a complete list of special characters
-    input=$(echo "$input" | sed -e 's/"/\\\\"/g')
-
-    # 4. Replace line breaks with \n
-    # input=$(echo "$input" | tr '\\n' ' ')
-    input=$(echo "$input" | tr '\n' ' ')
-
-    # 5. Additional custom sanitation can be added here
-    echo "$input"
-}
-
 # Show documentation
-qa_docs() {
+qa_help() {
     cat <<EOF
 Q&A Command Line Tool Documentation:
 ------------------------------------
@@ -191,24 +201,8 @@ qa_init() {
     qa_set_context "$_QA_CONTEXT"  # Set initial context
 }
 
-_qa_validate_input ()
-{
-    local index=$1
-    local array_length=$2
 
-    if [[ -z "$index" ]] ||   # Check if index is empty
-       [[ ! "$index" =~ ^-?[0-9]+$ ]] ||   # Check if index is not a number
-       [[ "$index" -lt 0 ]] ||   # Check if index is negative
-       [[ "$index" -ge "$array_length" ]];   # Check if index is out of range
-    then
-        echo "Invalid index"
-        return 1
-    fi
-
-    return 0
-}
-
-qa_file_to_id() {
+qa_id() {
     local file="$1"
     if [[ -L "$file" ]]; then
         file=$(readlink -f "$file")
@@ -230,6 +224,13 @@ q()
     cat "${files[$index]}"
 }
 
+qa_delete(){
+    local files=($(ls $db/*.answer | sort -n))
+    local last=$((${#files[@]}-1))
+    local indexFromLast=$(_qa_sanitize_index $1)
+    local index=$(($last-$indexFromLast))
+    echo "${files[$index]}"
+}
 
 a()
 {
@@ -240,15 +241,7 @@ a()
     local indexFromLast=$(_qa_sanitize_index $1)
     local index=$(($last-$indexFromLast))
     cat "${files[$index]}"
-}
-
-_qa_sanitize_index ()
-{
-    local index=$1
-    if [[ -z "$index" ]]; then
-	     index=0
-    fi
-    echo "$index"
+    ln -sf "${files[$index]}" "$QA_DIR/last_answer"
 }
 
 qa_responses ()
@@ -271,24 +264,6 @@ qa_db_nuke(){
     rm -rf "$db"
     mkdir -p "$db"
     echo ""
-}
-
-
-#> FORMATTING
-
-QA_MARGIN=${QA_MARGIN:-auto}
-QA_SPACING=${QA_SPACING:-1}
-QA_TOP=${QA_TOP:-2}
-QA_BOTTOM=${QA_BOTTOM:-3}
-QA_WIDTH=${QA_WIDTH:-65}
-
-
-fa_init() {
-    QA_MARGIN=auto
-    QA_SPACING=1
-    QA_TOP=2
-    QA_BOTTOM=3
-QA_WIDTH=65
 }
 
 
@@ -315,4 +290,22 @@ ga(){
     #echo ${files[$index]}.grade
 }
 
+qa_export() {
+    for var in $(compgen -A variable QA); do
+        export $var
+    done
+    
+    for var in $(compgen -A variable _QA); do
+        export $var
+    done
+    for func in $(compgen -A function qa); do
+        export -f $func
+    done
+    
+    for func in $(compgen -A function _qa); do
+        export -f $func
+    done
+}
+
 qa_init
+qa_export
