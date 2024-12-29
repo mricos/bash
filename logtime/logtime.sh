@@ -235,7 +235,44 @@ logtime-status(){
   echo
 }
 
-logtime-marks(){
+logtime-marks() {
+    IFS_ORIG=$IFS
+    IFS=$'\n'
+    local total=0
+    local abstime=0
+    local n=0
+    local start=${1:-0}
+    local end=${2:-${#LT_MARKS[@]}}
+    _logtime-meta-restore
+    lt_clipboard=()
+
+    for line in "${LT_MARKS[@]}"; do
+        IFS=' ' read -r left right <<< "$line"
+        local hms=$(_logtime-hms "$left")
+        abstime=$((LT_START + total))
+        if (( n >= start && n <= end )); then
+            printf "%3s %5s %-36s %9s" "$n" "$left" "$right" "$hms"
+            echo " $(date +"%a %D %H:%M" -d@$abstime)"
+            lt_clipboard+=("$line")
+        fi
+        (( total += left ))
+        (( n++ ))
+    done
+
+    abstime=$((LT_START + total))
+    printf "%56s %s\n" "" "$(date +"%a %D %H:%M" -d@$abstime)"
+    IFS=$IFS_ORIG
+
+    local days diff_days
+    days=$(echo "scale=2; $total / 86400" | bc | tr -d '\n')
+    diff=$((LT_LASTMARK - LT_START))
+    diff_days=$(echo "scale=2; $diff / 86400" | bc | tr -d '\n')
+      
+    printf "%20s%s\n\n" "" "Total $total seconds: $days days"
+}
+
+
+logtime-marks-DELETE(){
   IFS_ORIG=$IFS
   IFS=$"\n"
   local total=0

@@ -3,12 +3,14 @@
 #source $(dirname $BASH_SOURCE)/src/formatting.sh
 # Directory for storing data and configurations
 QA_SRC="$HOME/src/mricos/bash/qa/qa.sh"
+SCRIPT_DIR=$(dirname "${BASH_SOURCE[0]}")
 QA_DIR="$HOME/.qa"
 alias qq='qa_query'
 alias q1='_QA_ENGINE=gpt-3.5-turbo; qa_query'
 alias q2='_QA_ENGINE=gpt-4-turbo; qa_query'
 alias q3='_QA_ENGINE=gpt-4o-mini; qa_query'
 alias db="ls $QA_DIR/db"
+
 
 # Default configurations overwriten by init()
 _QA_ENGINE="gpt-3.5-turbo"             # Default engine
@@ -18,6 +20,9 @@ _QA_CONTEXT="Write smart, dry answers" # Example default context
 _QA_ENGINE_FILE="$QA_DIR/engine"
 _QA_CONTEXT_FILE="$QA_DIR/context"
 _OPENAI_API_FILE="$QA_DIR/api_key"
+
+source $SCRIPT_DIR/getcode.sh
+source $SCRIPT_DIR/export.sh
 
 _qa_sanitize_index ()
 {

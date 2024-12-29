@@ -10,4 +10,8 @@ qa_export() {
     for func in $(compgen -A function _qa); do
         export -f $func
     done
+
+    export -f a
 }
+
+qa_export
