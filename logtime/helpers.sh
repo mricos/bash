@@ -98,6 +98,8 @@ _logtime-hms-to-seconds(){
 }
 
 _logtime-elapsed-hms(){
+  [ -z "$LT_START" ] && return 1;
+
   ts=$LT_STOP
   if [ -z "$LT_STOP" ]; then
     ts=$(date +%s)
