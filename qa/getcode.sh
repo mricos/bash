@@ -1,43 +1,43 @@
-alias getcode=qa_getcode
-
-qa_getcode() {
+# Refactored script to extract and manage code blocks
+getcode() {
     # Ensure QA_DIR is set and valid
     if [ -z "$QA_DIR" ]; then
         echo "QA_DIR is not set. Please set it before running." >&2
         return 1
     fi
 
-    # Create temporary directory if it doesn't exist
     local temp_dir="/tmp/qacode"
-    [ ! -d "$temp_dir" ] && mkdir -p "$temp_dir"
+    mkdir -p "$temp_dir" || return 1  # Ensure creation of the temp directory; exit if fails
 
-    # Initialize variables
     local counter=1
     local inside_code_block=false
     local parent_id=$(qa_id "$QA_DIR/last_answer")
-    local outfile=""
+    
+    # Ensure parent_id retrieval was successful
+    if [ -z "$parent_id" ]; then
+        echo "Failed to retrieve parent ID from $QA_DIR/last_answer" >&2
+        return 1
+    fi
 
-    # Read lines from stdin
     while IFS= read -r line; do
         if [[ "$line" =~ ^\`\`\` ]]; then
             if $inside_code_block; then
                 # Close current code block
                 inside_code_block=false
-                outfile=""
             else
                 # Start a new code block
                 inside_code_block=true
-                outfile="$temp_dir/${parent_id}.${counter}.code"
-                touch "$outfile"
-                counter=$((counter + 1))
+                local outfile="$temp_dir/${parent_id}.${counter}.code"
+                touch "$outfile" || return 1
+                counter=$((counter+1))
             fi
-        elif $inside_code_block && [ -n "$outfile" ]; then
+        elif $inside_code_block; then
             # Write to the file if inside a code block
             echo "$line" >> "$outfile"
         fi
     done
 
-    # Default to the first code block if no argument is provided
+    # Argument handling for selecting which code block to extract
     local index=${1:-1}
     local source_file="$temp_dir/${parent_id}.${index}.code"
 
@@ -49,3 +49,8 @@ qa_getcode() {
         return 1
     fi
 }
+
+# It's a good practice to not run scripts if they are sourced from another script
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    getcode "$@"
+fi
