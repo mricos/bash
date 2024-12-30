@@ -22,7 +22,6 @@ _QA_CONTEXT_FILE="$QA_DIR/context"
 _OPENAI_API_FILE="$QA_DIR/api_key"
 
 source $SCRIPT_DIR/getcode.sh
-source $SCRIPT_DIR/export.sh
 
 _qa_sanitize_index ()
 {
@@ -295,22 +294,5 @@ ga(){
     #echo ${files[$index]}.grade
 }
 
-qa_export() {
-    for var in $(compgen -A variable QA); do
-        export $var
-    done
-    
-    for var in $(compgen -A variable _QA); do
-        export $var
-    done
-    for func in $(compgen -A function qa); do
-        export -f $func
-    done
-    
-    for func in $(compgen -A function _qa); do
-        export -f $func
-    done
-}
-
+source $SCRIPT_DIR/export.sh
 qa_init
-qa_export

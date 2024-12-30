@@ -3,6 +3,10 @@ qa_export() {
         export $var
     done
     
+    for var in $(compgen -A variable _QA); do
+        export $var
+    done
+    
     for func in $(compgen -A function qa); do
         export -f $func
     done
