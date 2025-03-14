@@ -2,14 +2,14 @@
 
 #source $(dirname $BASH_SOURCE)/src/formatting.sh
 # Directory for storing data and configurations
-QA_SRC="$HOME/src/mricos/bash/qa/qa.sh"
+QA_SRC="$HOME/src/bash/qa/qa.sh"
 SCRIPT_DIR=$(dirname "${BASH_SOURCE[0]}")
 QA_DIR="$HOME/.qa"
-alias qq='qa_query'
-alias q1='_QA_ENGINE=gpt-3.5-turbo; qa_query'
-alias q2='_QA_ENGINE=gpt-4-turbo; qa_query'
-alias q3='_QA_ENGINE=gpt-4o-mini; qa_query'
-alias db="ls $QA_DIR/db"
+
+qq() { qa_query "$@"; }
+q1() { _QA_ENGINE=gpt-3.5-turbo; qa_query "$@"; }
+q2() { _QA_ENGINE=gpt-4-turbo; qa_query "$@"; }
+q3() { _QA_ENGINE=gpt-4o-mini; qa_query "$@"; }
 
 
 # Default configurations overwriten by init()
