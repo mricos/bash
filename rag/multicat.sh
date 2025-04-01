@@ -1,57 +1,58 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # multicat.sh
-# Concatenate multiple files (or directories) into a single multicat stream,
-# embedding file metadata in header blocks.
+# Concatenates multiple files (or files within directories) into a single
+# multicat stream, embedding file metadata in header blocks.
+
 set -euo pipefail
+
+# Source the help documentation
+source "$(dirname "$0")/help.sh"
 
 # Global arrays for file inclusion and exclusion, and recursion flag.
 include_files=()
 exclude_files=()
 recursive=0
 
-# Convert array elements into a regex pattern.
+# array_to_regex
+# Converts array elements into a regex pattern suitable for =~ operator.
 array_to_regex() {
   local IFS="|"
-  echo ".*($*)$"
+  if [[ $# -eq 0 ]]; then
+    echo '^$'
+  else
+    echo ".*($*)$"
+  fi
 }
 
-# Recursively list files from a directory.
+# recurse_dirs
+# Recursively lists files from a directory, respecting exclusions.
+# Outputs absolute paths of files found.
 recurse_dirs() {
   local dir="$1"
   local exclude_regex
   exclude_regex=$(array_to_regex "${exclude_files[@]:-}")
-  for file in "$dir"*; do
-    if [[ -d "$file" ]]; then
-      recurse_dirs "$file/"
-    elif [[ -f "$file" ]]; then
-      local file_with_path
-      file_with_path=$(realpath "$file")
-      # Skip file if it matches an exclusion pattern.
-      if [[ ${#exclude_files[@]:-0} -gt 0 && "$file_with_path" =~ $exclude_regex ]]; then
-        continue
-      fi
-      # If include_files is nonempty, include only matching files.
-      if [[ ${#include_files[@]:-0} -gt 0 ]]; then
-        local found=0
-        for inc in "${include_files[@]}"; do
-          if [[ "$file_with_path" == "$inc" ]]; then
-            found=1
-            break
-          fi
-        done
-        [[ $found -eq 0 ]] && continue
-      fi
-      echo "$file_with_path"
+
+  find -L "$dir" -type f -print0 | while IFS= read -r -d $'\0' file; do
+    local file_with_path
+    file_with_path=$(realpath "$file")
+
+    if [[ ${#exclude_files[@]} -gt 0 && "$file_with_path" =~ $exclude_regex ]]; then
+      continue
     fi
+
+    echo "$file_with_path"
   done
 }
 
-# Load include file paths from an external file.
+# load_include_files_from_file
+# Loads include file paths from an external file.
 load_include_files_from_file() {
   local file_path="$1"
   if [[ -f "$file_path" ]]; then
-    while IFS= read -r line; do
-      include_files+=("$line")
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      if [[ -n "$line" && "${line:0:1}" != "#" ]]; then
+        include_files+=("$line")
+      fi
     done < "$file_path"
   else
     echo "Error: Include file '$file_path' not found." >&2
@@ -59,12 +60,13 @@ load_include_files_from_file() {
   fi
 }
 
-# Load exclusion patterns from a file.
+# load_exclude_patterns_from_file
+# Loads exclusion patterns from a file (like .gitignore or .multignore).
 load_exclude_patterns_from_file() {
   local file_path="$1"
   if [[ -f "$file_path" ]]; then
-    while IFS= read -r line; do
-      line=$(echo "$line" | tr -d '[:space:]')
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      line=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
       if [[ -n "$line" && "${line:0:1}" != "#" ]]; then
         exclude_files+=("$line")
       fi
@@ -72,7 +74,8 @@ load_exclude_patterns_from_file() {
   fi
 }
 
-# Load .gitignore and .multignore patterns.
+# load_gitignore_files
+# Loads .gitignore and .multignore patterns from the current directory downwards.
 load_gitignore_files() {
   find . -name ".gitignore" -o -name ".multignore" -type f -print0 | \
     while IFS= read -r -d $'\0' file; do
@@ -80,32 +83,14 @@ load_gitignore_files() {
     done
 }
 
-display_help() {
-  cat <<EOF
-multicat: Concatenate files into a multicat stream with metadata headers.
-Usage: $(basename "$0") [OPTIONS] [FILES...]
-Options:
-  -i FILE [FILE ...]   Directly include one or more files or directories.
-  -f FILE              Load list of include files from the specified file.
-  -r                   Recursively process directories.
-  -h, --help          Display this help message.
-
-Description:
-  The multicat output consists of a header block for each file, formatted as:
-    #MULTICAT_START#
-    # dir: /original/path/to/dir
-    # file: filename.txt
-    # notes:
-    #MULTICAT_END#
-  followed by the file's contents. This format facilitates later extraction with multisplit.
-EOF
-}
-
-# Parse command-line arguments.
+# --- Argument Parsing ---
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -i)
       shift
+      if [[ $# -eq 0 || "$1" == -* ]]; then
+        echo "Error: Missing argument for -i" >&2; exit 1;
+      fi
       while [[ $# -gt 0 && "$1" != -* ]]; do
         include_files+=("$1")
         shift
@@ -113,7 +98,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     -f)
       shift
-      if [[ $# -gt 0 ]]; then
+      if [[ $# -gt 0 && "$1" != -* ]]; then
         load_include_files_from_file "$1"
         shift
       else
@@ -129,6 +114,11 @@ while [[ $# -gt 0 ]]; do
       display_help
       exit 0
       ;;
+    -*)
+      echo "Error: Unknown option '$1'" >&2
+      display_help
+      exit 1
+      ;;
     *)
       include_files+=("$1")
       shift
@@ -136,60 +126,43 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# If no files specified, default to multmore.log (if it exists).
-if [[ ${#include_files[@]:-0} -eq 0 && ${#exclude_files[@]:-0} -eq 0 ]]; then
+# --- Pre-processing ---
+if [[ ${#include_files[@]} -eq 0 ]]; then
   if [[ -f "./multmore.log" ]]; then
+    echo "No input specified, defaulting to ./multmore.log" >&2
     include_files+=("./multmore.log")
+  else
+    echo "Error: No input files or directories specified." >&2
+    display_help
+    exit 1
   fi
 fi
 
 load_gitignore_files
+exclude_regex=$(array_to_regex "${exclude_files[@]:-}")
 
-# Create temporary file to hold output.
-tmp_file=$(mktemp)
-
-# Build file index.
+# --- File Gathering ---
+files_to_process=()
 file_index=""
 file_count=1
 
-for file in "${include_files[@]:-}"; do
-  if [[ -f "$file" ]]; then
-    file_path=$(realpath "$file")
-    if [[ ${#exclude_files[@]:-0} -gt 0 && "$file_path" =~ $(array_to_regex "${exclude_files[@]:-}") ]]; then
-      continue
-    fi
-    file_index+="[$file_count] $file_path\n"
-    file_count=$((file_count + 1))
-  elif [[ -d "$file" && $recursive -eq 1 ]]; then
-    recurse_dirs "$file/"
-  elif [[ -d "$file" && $recursive -eq 0 ]]; then
-    echo "Warning: '$file' is a directory. Use -r to process directories recursively." >&2
-  fi
-done
+echo "Gathering files..." >&2
 
-# Build file contents with header for each file.
-file_contents=""
-for file in "${include_files[@]:-}"; do
-  if [[ -f "$file" ]]; then
-    file_path=$(realpath "$file")
-    if [[ ${#exclude_files[@]:-0} -gt 0 && "$file_path" =~ $(array_to_regex "${exclude_files[@]:-}") ]]; then
-      continue
-    fi
-    file_content_tmp=$(cat "$file_path")
-    file_dir=$(dirname "$file_path")
-    file_name=$(basename "$file_path")
-    file_contents+="#MULTICAT_START#\n"
-    file_contents+="# dir: ${file_dir}\n"
-    file_contents+="# file: ${file_name}\n"
-    file_contents+="# notes:\n"
-    file_contents+="#MULTICAT_END#\n"
-    file_contents+="${file_content_tmp}\n\n"
+for item in "${include_files[@]}"; do
+  if [[ ! -e "$item" ]]; then
+    echo "Warning: Input item '$item' not found. Skipping." >&2
+    continue
   fi
-done
 
-{
-  echo -e "$file_index"
-  echo -e "$file_contents"
-} > "$tmp_file"
-cat "$tmp_file"
-rm "$tmp_file"
+  item_path=$(realpath "$item")
+
+  if [[ -f "$item" && ${#exclude_files[@]} -gt 0 && "$item_path" =~ $exclude_regex ]]; then
+    echo "Skipping excluded file: $item_path" >&2
+    continue
+  fi
+
+  if [[ -f "$item" ]]; then
+    files_to_process+=
+::contentReference[oaicite:0]{index=0}
+ 
+
