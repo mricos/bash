@@ -27,6 +27,18 @@ declare -gA rules
 declare -ga SYMBOLS
 declare -ga PAGES
 
+# --- Global State (Managed by Engine & Algos) ---
+declare -ga grid_lines_1x1
+declare -ga grid_lines_nxn
+declare -ga text_lines
+# Global algo metadata (set by algos)
+declare -g ALGO_TILE_WIDTH=1
+declare -g ALGO_TILE_HEIGHT=1
+# Global TILE data (set by relevant algos like grid2.sh)
+declare -gA TILE_TOPS
+declare -gA TILE_BOTS
+declare -gA TILE_NAME_TO_CHAR # Used by grid2.sh
+
 # --- Initialization ---
 # Clear the debug log at the start
 > "$DEBUG_LOG_FILE"
@@ -92,108 +104,206 @@ load_and_init_algorithm() {
     return 0
 }
 
-# --- Double Buffer Rendering ---
-render() {
-    # Redirect debug output for troubleshooting to the log file
-    echo "DEBUG (render): PAGES array has ${#PAGES[@]} elements" >> "$DEBUG_LOG_FILE"
+# --- Rendering Helper Functions ---
 
-    # Store grid lines and text lines separately
-    local -a grid_lines=()
-    local -a text_lines=() # Combine pages, status, controls here
+_build_grid_lines_1x1() {
+    grid_lines_1x1=() # Clear global array
+    local current_error_symbol="${ERROR_SYMBOL:-X}" # Algo error symbol or 'X'
+    # Check if the current algo provides TILE_NAME_TO_CHAR mapping
+    local can_map_names=0
+    [[ "$(declare -p TILE_NAME_TO_CHAR 2>/dev/null)" == "declare -A"* ]] && can_map_names=1
 
-    # --- Build Grid Lines ---
+    echo "DEBUG (render_1x1): Building..." >> "$DEBUG_LOG_FILE"
     for ((y=0; y<ROWS; y++)); do
         local line=""
         for ((x=0; x<COLS; x++)); do
             local key="$y,$x"
-            if [[ "${collapsed[$key]}" == "1" ]]; then
-                line+="${grid[$key]:-?}"
-            else
-                if [[ $EMPTY_DISPLAY -eq 1 ]]; then
-                    line+=" " # Use space instead of dots/entropy indicators
+            if [[ "${collapsed[$key]:-0}" == "1" ]]; then
+                local cell_content_name="${grid[$key]:-?}" # Get name/content from grid
+                local display_char="?"
+                if [[ "$cell_content_name" == "$current_error_symbol" ]]; then
+                     display_char="${TILE_NAME_TO_CHAR[$current_error_symbol]:-$current_error_symbol}" # Mapped error or raw
+                elif [[ $can_map_names -eq 1 && -v TILE_NAME_TO_CHAR[$cell_content_name] ]]; then
+                     display_char="${TILE_NAME_TO_CHAR[$cell_content_name]}" # Mapped char
                 else
-                    local -a opts=(${possibilities[$key]})
-                    local entropy=${#opts[@]}
-                    if (( entropy <= 1 )); then line+="·";
-                    elif (( entropy <= 3 )); then line+=":";
-                    else line+="·";
-                    fi
+                     display_char="${cell_content_name:0:1}" # Fallback: first char
+                fi
+                 line+="$display_char"
+            else # Uncollapsed
+                if [[ $EMPTY_DISPLAY -eq 1 ]]; then line+=" "; else
+                    local opts_str="${possibilities[$key]-}" # Use possibilities array
+                    local entropy=${#opts_str}
+                    if [[ $entropy == 0 && "${collapsed[$key]:-0}" != "1" ]]; then line+="${current_error_symbol}"; else
+                    if (( entropy <= 1 )); then line+="·"; elif (( entropy <= 3 )); then line+=":"; else line+="·"; fi; fi
                 fi
             fi
         done
-        grid_lines+=("$line")
+        grid_lines_1x1+=("$line")
+    done
+     echo "DEBUG (render_1x1): Built ${#grid_lines_1x1[@]} lines." >> "$DEBUG_LOG_FILE"
+}
+
+_build_grid_lines_nxn() {
+    grid_lines_nxn=() # Clear global array
+    local current_error_symbol="${ERROR_SYMBOL:-?}"
+    local tile_w=${ALGO_TILE_WIDTH:-1} # Use globals set by render dispatcher
+    local tile_h=${ALGO_TILE_HEIGHT:-1}
+
+    # Check if TILE data is valid
+    if ! declare -p TILE_TOPS &>/dev/null || ! declare -p TILE_BOTS &>/dev/null \
+           || [[ "$(declare -p TILE_TOPS)" != "declare -A"* ]] || [[ "$(declare -p TILE_BOTS)" != "declare -A"* ]]; then
+        echo "ERROR (render_nxn): TILE_TOPS/BOTS arrays not valid." >> "$DEBUG_LOG_FILE"
+        grid_lines_nxn+=("ERROR: Missing TILE data") # Add error line
+        return 1 # Indicate failure
+    fi
+
+    echo "DEBUG (render_nxn): Building ${tile_w}x${tile_h} lines..." >> "$DEBUG_LOG_FILE"
+    local sample_glyph_width=7; if [[ -v TILE_TOPS[STRAIGHT_H] ]]; then sample_glyph_width=${#TILE_TOPS[STRAIGHT_H]}; [[ $sample_glyph_width -lt 1 ]] && sample_glyph_width=1; fi
+    local placeholder_error="!ERROR!"; local placeholder_unk="??UNK??"; local placeholder_uncol="......."
+    printf -v placeholder_error "%-*.*s" $sample_glyph_width $sample_glyph_width "$placeholder_error"
+    printf -v placeholder_unk "%-*.*s" $sample_glyph_width $sample_glyph_width "$placeholder_unk"
+    printf -v placeholder_uncol "%-*.*s" $sample_glyph_width $sample_glyph_width "$placeholder_uncol"
+
+    for ((y=0; y<ROWS; y++)); do
+        for ((ty=0; ty<tile_h; ty++)); do
+            local current_line=""
+            for ((x=0; x<COLS; x++)); do
+                local key="$y,$x"; local glyph_segment=""; local collapsed_status="${collapsed[$key]:-0}"
+                if [[ "$collapsed_status" == "1" ]]; then
+                    local tile_name="${grid[$key]:-UNK}" # Get name from grid
+                    if [[ "$tile_name" == "$current_error_symbol" ]]; then glyph_segment="$placeholder_error"
+                    elif [[ "$tile_name" == "UNK" ]] || ! [[ -v TILE_TOPS[$tile_name] ]]; then glyph_segment="$placeholder_unk"
+                    else
+                        if (( ty == 0 )); then glyph_segment="${TILE_TOPS[$tile_name]}"
+                        elif (( ty == 1 && tile_h >= 2 )); then glyph_segment="${TILE_BOTS[$tile_name]}"
+                        else glyph_segment="$placeholder_unk"; fi
+                        [[ -z "$glyph_segment" ]] && glyph_segment="$placeholder_unk"
+                    fi
+                else glyph_segment="$placeholder_uncol"; fi
+                current_line+="${glyph_segment} "
+            done; grid_lines_nxn+=("${current_line% }")
+        done
+    done
+    echo "DEBUG (render_nxn): Built ${#grid_lines_nxn[@]} lines." >> "$DEBUG_LOG_FILE"
+    return 0 # Indicate success
+}
+
+_build_text_lines() {
+    text_lines=() # Clear global array
+    local tile_w=${ALGO_TILE_WIDTH:-1}
+    local tile_h=${ALGO_TILE_HEIGHT:-1}
+    text_lines+=("WFC Engine - $(date +%H:%M:%S)"); text_lines+=("----------------------------------------")
+    text_lines+=("Algorithm: ${ALGO_FILE} [$((CURRENT_ALGO_INDEX+1))/${#ALGO_FILES[@]}] (${tile_w}x${tile_h})")
+    text_lines+=("Status: $([[ $RUNNING -eq 1 ]] && echo "Running" || echo "Paused")"); text_lines+=("Message: $STATUS_MESSAGE"); text_lines+=("----------------------------------------")
+    if [[ ${#PAGES[@]} -gt 0 ]]; then text_lines+=("PAGE $((CURRENT_PAGE+1))/${#PAGES[@]}"); text_lines+=("----------------------------------------"); IFS=$'\n' read -d '' -ra content_lines <<< "${PAGES[$CURRENT_PAGE]}"; for line in "${content_lines[@]}"; do text_lines+=("$line"); done; text_lines+=("----------------------------------------"); else text_lines+=("NO DOC PAGES FOUND"); text_lines+=("----------------------------------------"); fi
+    local collapsed_count=0; for k in "${!collapsed[@]}"; do [[ "${collapsed[$k]}" == "1" ]] && ((collapsed_count++)); done; text_lines+=("Collapsed: $collapsed_count / $((ROWS*COLS))"); text_lines+=("----------------------------------------")
+    text_lines+=("Controls:"); text_lines+=("[s] Start/Stop | [c] Step"); text_lines+=("[n] Next Page  | [p] Prev Page"); text_lines+=("[1-${#ALGO_FILES[@]}] Select Algorithm | [f] Full Screen | [e] Empty View | [q] Quit")
+}
+
+# --- Main Rendering Functions ---
+
+render_small() { # Side-by-side mode
+    _build_grid_lines_1x1
+    _build_text_lines
+
+    local buffer=""
+    echo "DEBUG (render): Using SIDE-BY-SIDE mode." >> "$DEBUG_LOG_FILE"
+    local term_cols=$(tput cols); local desired_text_width=40; local panel_spacing=3
+    local grid_panel_width=$COLS
+    local max_text_width=$(( term_cols - grid_panel_width - panel_spacing )); [[ $max_text_width -lt 0 ]] && max_text_width=0
+    local actual_text_width=$(( desired_text_width < max_text_width ? desired_text_width : max_text_width )); [[ $actual_text_width -lt 0 ]] && actual_text_width=0
+    local max_rows=$((${#grid_lines_1x1[@]} > ${#text_lines[@]} ? ${#grid_lines_1x1[@]} : ${#text_lines[@]}))
+
+    for ((i=0; i<max_rows; i++)); do
+        local grid_content=""; local text_content=""
+        if ((i < ${#grid_lines_1x1[@]})); then grid_content="${grid_lines_1x1[$i]:0:$grid_panel_width}"; fi
+        if ((i < ${#text_lines[@]})); then text_content="${text_lines[$i]:0:$actual_text_width}"; fi
+
+        # Create the line string WITHOUT newline first
+        local line_str
+        line_str=$(printf "%-${grid_panel_width}s%${panel_spacing}s%s" "$grid_content" "" "$text_content")
+
+        # Append the line string and a literal newline character sequence to buffer
+        buffer+="${line_str}\\n" # Append literal backslash-n
     done
 
-    # --- Build Text Lines (Right Panel) ---
-    text_lines+=("WFC Engine - $(date +%H:%M:%S)")
-    text_lines+=("----------------------------------------")
-    text_lines+=("Algorithm: ${ALGO_FILE} [$((CURRENT_ALGO_INDEX+1))/${#ALGO_FILES[@]}]") # Show current algo
-    text_lines+=("Status: $([[ $RUNNING -eq 1 ]] && echo "Running" || echo "Paused")")
-    text_lines+=("Message: $STATUS_MESSAGE")
-    text_lines+=("----------------------------------------")
+    # Return the assembled buffer. The main render function will print it.
+    # Use printf %b to interpret the \n sequences when captured.
+    printf "%b" "$buffer"
+}
 
-    # Page content
-    if [[ ${#PAGES[@]} -gt 0 ]]; then
-        text_lines+=("PAGE $((CURRENT_PAGE+1))/${#PAGES[@]}")
-        text_lines+=("----------------------------------------")
-        IFS=$'\n' read -d '' -ra content_lines <<< "${PAGES[$CURRENT_PAGE]}"
-        for line in "${content_lines[@]}"; do text_lines+=("$line"); done
-        text_lines+=("----------------------------------------")
+render_large() { # Full screen mode
+    local tile_w=${ALGO_TILE_WIDTH:-1}
+    local tile_h=${ALGO_TILE_HEIGHT:-1}
+    local build_nxn_success=0
+    local buffer="" # Buffer for the complete output
+
+    echo "DEBUG (render): Using FULL SCREEN mode." >> "$DEBUG_LOG_FILE"
+    local -n current_grid_lines_ref=grid_lines_1x1 # Default ref
+    local grid_display_height=$ROWS
+    local grid_char_width=$COLS # Default width
+
+    if (( tile_w > 1 || tile_h > 1 )); then
+        if _build_grid_lines_nxn; then
+             echo "DEBUG (render): Full screen - Build NxN SUCCESS. Using NxN lines." >> "$DEBUG_LOG_FILE"
+             current_grid_lines_ref=grid_lines_nxn # Switch ref to NxN lines
+             grid_display_height=$(( ROWS * tile_h ))
+             # Calculate NxN width more accurately
+             if [[ ${#current_grid_lines_ref[@]} -gt 0 ]]; then
+                 # Use the length of the first line as representative width
+                 grid_char_width=${#current_grid_lines_ref[0]}
+             else
+                 # Fallback if array is empty (shouldn't happen on success)
+                 grid_char_width=$(( COLS * tile_w )) # Estimate
+             fi
+             build_nxn_success=1
+        else
+             echo "WARN (render): Full screen - Build NxN FAILED. Falling back to 1x1." >> "$DEBUG_LOG_FILE"
+             _build_grid_lines_1x1 # Ensure 1x1 is built
+             current_grid_lines_ref=grid_lines_1x1 # Keep ref as 1x1
+             grid_display_height=$ROWS
+             grid_char_width=$COLS
+        fi
     else
-        text_lines+=("NO DOC PAGES FOUND")
-        text_lines+=("----------------------------------------")
+        # If 1x1 algo, build and use 1x1 lines
+        _build_grid_lines_1x1
+        echo "DEBUG (render): Full screen - Using 1x1 lines." >> "$DEBUG_LOG_FILE"
+        current_grid_lines_ref=grid_lines_1x1
+        grid_display_height=$ROWS
+        grid_char_width=$COLS
     fi
 
-    # Collapsed cell count
-    local collapsed_count=0
-    for k in "${!collapsed[@]}"; do [[ "${collapsed[$k]}" == "1" ]] && ((collapsed_count++)); done
-    text_lines+=("Collapsed: $collapsed_count / $((ROWS*COLS))")
-    text_lines+=("----------------------------------------")
+    # Get current terminal dimensions *just before* calculating offsets
+    local term_rows=$(tput lines); local term_cols=$(tput cols)
+    local row_offset=$(( (term_rows - grid_display_height) / 2 )); local col_offset=$(( (term_cols - grid_char_width) / 2 ))
+    [[ $row_offset -lt 0 ]] && row_offset=0; [[ $col_offset -lt 0 ]] && col_offset=0
 
-    # Controls - updated to show algorithm switching
-    text_lines+=("Controls:")
-    text_lines+=("[s] Start/Stop | [c] Step")
-    text_lines+=("[n] Next Page  | [p] Prev Page")
-    text_lines+=("[1-${#ALGO_FILES[@]}] Select Algorithm | [f] Full Screen | [e] Empty View | [q] Quit")
+    # Add cursor positioning command to buffer first
+    buffer+=$(printf "\033[$((row_offset + 1));${col_offset}H")
 
-    # --- Render Based on Mode ---
-    printf "\033[H\033[J" # Clear screen and move cursor to home
+    for ((i=0; i<${#current_grid_lines_ref[@]}; i++)); do
+        local line_content="${current_grid_lines_ref[$i]}"
+        # Append line content and cursor move command for the *next* line
+        # Ensure line_content doesn't contain unexpected newlines itself
+        line_content=${line_content//$'\n'/ } # Replace potential newlines in grid data with spaces
+        buffer+=$(printf "%s\033[$((row_offset + i + 2));${col_offset}H" "$line_content")
+    done
 
+    # Return the assembled buffer (which includes ANSI escape codes)
+    printf "%s" "$buffer" # Print raw buffer with escapes
+}
+
+# --- Main Render Dispatcher ---
+render() {
+    local output_buffer=""
     if [[ $FULL_SCREEN -eq 1 ]]; then
-        # Get terminal dimensions
-        local term_rows=$(tput lines)
-        local term_cols=$(tput cols)
-        
-        # Calculate centering offsets
-        local row_offset=$(( (term_rows - ROWS) / 2 ))
-        local col_offset=$(( (term_cols - COLS) / 2 ))
-        
-        # Skip negative offsets (terminal too small)
-        [[ $row_offset -lt 0 ]] && row_offset=0
-        [[ $col_offset -lt 0 ]] && col_offset=0
-        
-        # Move to offset position and display centered grid
-        for ((i=0; i<row_offset; i++)); do
-            echo ""
-        done
-        
-        for line in "${grid_lines[@]}"; do
-            printf "%${col_offset}s%s\n" "" "$line"
-        done
+        output_buffer=$(render_large) # Capture output from function
     else
-        # Regular side-by-side display
-        local grid_width=$COLS
-        local text_width=40 # Adjust as needed
-        local max_rows=$((${#grid_lines[@]} > ${#text_lines[@]} ? ${#grid_lines[@]} : ${#text_lines[@]}))
-
-        for ((i=0; i<max_rows; i++)); do
-            local grid_content=""
-            local text_content=""
-            if ((i < ${#grid_lines[@]})); then grid_content="${grid_lines[$i]}"; fi
-            if ((i < ${#text_lines[@]})); then text_content="${text_lines[$i]}"; fi
-            printf "%-${grid_width}s   %s\n" "$grid_content" "$text_content"
-        done
+        output_buffer=$(render_small) # Capture output from function
     fi
+    # Clear screen THEN print the entire buffer at once
+    # Use %b to interpret potential \n sequences from render_small
+    printf "\033[H\033[J%b" "$output_buffer"
 }
 
 # --- Main Loop ---
@@ -323,7 +433,11 @@ main() {
                          # Re-render needed to show status
                      fi
                      ;;
-                 q) SHOULD_EXIT=1 ;; # Set flag, will exit on next loop check
+                 q)
+                     echo "DEBUG (input): Quit key pressed." >> "$DEBUG_LOG_FILE"
+                     SHOULD_EXIT=1
+                     key_pressed=1 # Ensure render happens if paused
+                     ;;
                  f) # Toggle full screen mode
                      FULL_SCREEN=$((1-FULL_SCREEN))
                      STATUS_MESSAGE="Full screen mode: $([[ $FULL_SCREEN -eq 1 ]] && echo "ON" || echo "OFF")"
