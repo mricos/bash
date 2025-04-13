@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+export LC_ALL=C.UTF-8 # Ensure UTF-8 locale
+
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
+export LC_CTYPE=C.UTF-8
+# Rest of your engine script...
 
 # Simple engine that loads and runs algorithm files
 
@@ -10,7 +16,7 @@ SHOULD_EXIT=0       # Exit flag
 FULL_SCREEN=0       # Toggle for full screen mode
 EMPTY_DISPLAY=0     # Toggle for replacing dots with spaces
 # Define available algorithms
-declare -a ALGO_FILES=("snake.sh" "wfc-basic.sh" "wfc.sh" "grid2.sh" "blocky.sh" "ca.sh") # Add ca.sh
+declare -a ALGO_FILES=("snake.sh" "wfc-basic.sh" "wfc.sh" "grid2.sh" "grid2-shapes.sh" "blocky.sh" "ca.sh")
 CURRENT_ALGO_INDEX=2 # Start with the third algorithm (wfc.sh)
 ALGO_FILE="${ALGO_FILES[$CURRENT_ALGO_INDEX]}" # Currently selected file
 STATUS_MESSAGE=""
@@ -137,6 +143,11 @@ _build_grid_lines_1x1() {
                     if (( entropy <= 1 )); then line+="·"; elif (( entropy <= 3 )); then line+=":"; else line+="·"; fi; fi
                 fi
             fi
+
+            # Add logging when grid2-shapes.sh is active
+            if [[ "$ALGO_FILE" == "grid2-shapes.sh" && "${collapsed[$key]:-0}" == "1" ]]; then
+                echo "DEBUG (render_1x1 shapes): key=$key, name='${grid[$key]}', char_lookup='${TILE_NAME_TO_CHAR[${grid[$key]}]}', final_char='$display_char'" >> "$DEBUG_LOG_FILE"
+            fi
         done
         grid_lines_1x1+=("$line")
     done
@@ -178,9 +189,9 @@ _build_grid_lines_nxn() {
     echo "DEBUG (render_nxn): Building ${tile_w}x${tile_h} lines (using sample_glyph_width=${sample_glyph_width})..." >> "$DEBUG_LOG_FILE"
 
     # Define placeholders based on the determined width
-    local placeholder_error; printf -v placeholder_error "%-${sample_glyph_width}.${sample_glyph_width}s" " ╳╳╳  " # Use a less jarring error symbol
-    local placeholder_unk; printf -v placeholder_unk "%-${sample_glyph_width}.${sample_glyph_width}s" "·?·?·"
-    local placeholder_uncol; printf -v placeholder_uncol "%-${sample_glyph_width}.${sample_glyph_width}s" "·······"
+    local placeholder_error; printf -v placeholder_error "%-${sample_glyph_width}.${sample_glyph_width}s" "   ×   "
+    local placeholder_unk; printf -v placeholder_unk "%-${sample_glyph_width}.${sample_glyph_width}s" " ·?·?· "
+    local placeholder_uncol; printf -v placeholder_uncol "%${sample_glyph_width}s" " " 
 
     # Find the area with collapsed cells to determine the "active" region
     local min_x=$COLS local max_x=0 local min_y=$ROWS local max_y=0
@@ -217,27 +228,79 @@ _build_grid_lines_nxn() {
     
     # Only build the active region
     for ((y=min_y; y<=max_y; y++)); do
-        for ((ty=0; ty<tile_h; ty++)); do
+        for ((ty=0; ty<tile_h; ty++)); do # Loop through tile height (0 and 1)
             local current_line=""
             for ((x=min_x; x<=max_x; x++)); do
                 local key="$y,$x"; local glyph_segment=""; local collapsed_status="${collapsed[$key]:-0}"
+                
+                # --- ADD LOGGING FOR ty ---
+                echo "DEBUG (render_nxn build loop): Processing y=$y, x=$x, ty=$ty" >> "$DEBUG_LOG_FILE"
+                
                 if [[ "$collapsed_status" == "1" ]]; then
-                    local tile_name="${grid[$key]:-UNK}" # Get name from grid
-                    if [[ "$tile_name" == "$current_error_symbol" ]]; then glyph_segment="$placeholder_error"
-                    elif [[ "$tile_name" == "UNK" ]]; then glyph_segment="$placeholder_unk" # Explicit UNK check
-                    elif (( ty == 0 )); then # Top part of the tile
-                        glyph_segment="${TILE_TOPS[$tile_name]:-$placeholder_unk}" # Use placeholder if key missing
-                    elif (( ty == 1 && tile_h >= 2 )); then # Bottom part
-                        glyph_segment="${TILE_BOTS[$tile_name]:-$placeholder_unk}" # Use placeholder if key missing
-                    else # Fallback for unexpected tile height or ty value
-                        glyph_segment="$placeholder_unk"
+                    local tile_name="${grid[$key]:-UNK}"
+                    echo "DEBUG (render_nxn build loop): Collapsed cell $key, Name='$tile_name'" >> "$DEBUG_LOG_FILE"
+
+                    # --- ADD CHECK FOR KEY EXISTENCE ---
+                    if ! [[ -v TILE_TOPS["$tile_name"] ]]; then
+                         echo "WARN (render_nxn build loop): TILE_TOPS key missing for name '$tile_name'" >> "$DEBUG_LOG_FILE"
                     fi
+                    if ! [[ -v TILE_BOTS["$tile_name"] ]]; then
+                         echo "WARN (render_nxn build loop): TILE_BOTS key missing for name '$tile_name'" >> "$DEBUG_LOG_FILE"
+                    fi
+                    # --- END CHECK ---
+
+                    if [[ "$tile_name" == "$current_error_symbol" ]]; then glyph_segment="$placeholder_error"
+                    elif [[ "$tile_name" == "UNK" ]]; then glyph_segment="$placeholder_unk"
+                    elif (( ty == 0 )); then # Top part of the tile
+                        glyph_segment="${TILE_TOPS[$tile_name]:-$placeholder_unk}"
+                        echo "DEBUG (render_nxn build loop): Fetched TOP glyph: '$glyph_segment'" >> "$DEBUG_LOG_FILE"
+                    elif (( ty == 1 && tile_h >= 2 )); then # Bottom part
+                        glyph_segment="${TILE_BOTS[$tile_name]:-$placeholder_unk}"
+                        # --- LOG BOTTOM GLYPH FETCH ---
+                        echo "DEBUG (render_nxn build loop): Fetched BOT glyph: '$glyph_segment'" >> "$DEBUG_LOG_FILE"
+                    else 
+                        glyph_segment="$placeholder_unk"
+                        echo "DEBUG (render_nxn build loop): Using UNK placeholder (ty=$ty, tile_h=$tile_h)" >> "$DEBUG_LOG_FILE"
+                    fi
+                    
                     # Ensure the segment has the correct width if found
                     if [[ "$glyph_segment" != "$placeholder_unk" && "$glyph_segment" != "$placeholder_error" ]]; then
-                         printf -v glyph_segment "%-${sample_glyph_width}.${sample_glyph_width}s" "$glyph_segment"
+                         # --- Modify Padding Here ---
+                         local current_len # Use 'wc -m' for character length if possible, else fallback
+                         # Check if wc command exists and supports -m flag for character count
+                         if command -v wc &> /dev/null && echo "test" | wc -m &> /dev/null; then
+                             current_len=$(echo -n "$glyph_segment" | wc -m)
+                         else 
+                             current_len=${#glyph_segment} # Fallback to potentially incorrect byte length
+                             if [[ $current_len -ne $sample_glyph_width ]]; then 
+                                echo "WARN (render_nxn loop): Using byte length fallback, might be inaccurate for multibyte chars." >> "$DEBUG_LOG_FILE"
+                             fi
+                         fi
+                         
+                         local padding_needed=$((sample_glyph_width - current_len))
+                         
+                         echo "DEBUG (render_nxn loop): key=$key, tile_name='$tile_name', ty=$ty, sample_glyph_width=$sample_glyph_width, current_len=$current_len, padding_needed=$padding_needed, BEFORE PADDING glyph_segment='${glyph_segment}'" >> "$DEBUG_LOG_FILE"
+
+                         if (( padding_needed > 0 )); then
+                             local padding_spaces
+                             printf -v padding_spaces "%${padding_needed}s" " " # Create string of spaces
+                             glyph_segment+="$padding_spaces" # Append spaces
+                         elif (( padding_needed < 0 )); then 
+                             # If wc -m worked, truncation is needed, otherwise this might be wrong
+                             # For simplicity now, let's avoid truncation unless wc -m is reliable
+                             if command -v wc &> /dev/null && echo "test" | wc -m &> /dev/null; then
+                                 glyph_segment="${glyph_segment:0:$sample_glyph_width}" # Truncate based on character count (requires UTF-8 locale)
+                                 echo "WARN (render_nxn loop): Glyph too long, truncated to $sample_glyph_width characters." >> "$DEBUG_LOG_FILE"
+                             fi
+                             # If no reliable wc -m, we risk keeping it too long if glyph definition is wrong
+                         fi
+                         # No change if padding_needed is 0
+                         
+                         echo "DEBUG (render_nxn loop): key=$key, tile_name='$tile_name', ty=$ty, AFTER PADDING glyph_segment='${glyph_segment}'" >> "$DEBUG_LOG_FILE"
+                         # --- End Padding Modification ---
                     fi
                 else
-                    glyph_segment="$placeholder_uncol" # Uncollapsed uses its own placeholder
+                    glyph_segment="$placeholder_uncol" 
                 fi
                 
                 # Only add a separator if this is not the last column
@@ -246,8 +309,17 @@ _build_grid_lines_nxn() {
                 else
                     current_line+="${glyph_segment}" # No space after last tile
                 fi
+
+                # Add logging when grid2-shapes.sh is active and cell is collapsed
+                if [[ "$ALGO_FILE" == "grid2-shapes.sh" && "$collapsed_status" == "1" ]]; then
+                    local top_glyph="${TILE_TOPS[$tile_name]:-MISSING}"
+                    local bot_glyph="${TILE_BOTS[$tile_name]:-MISSING}"
+                    echo "DEBUG (render_nxn shapes): key=$key, name='$tile_name', top='$top_glyph', bot='$bot_glyph', final_segment='$glyph_segment'" >> "$DEBUG_LOG_FILE"
+                fi
             done
-            grid_lines_nxn+=("$current_line") # Add the line
+            # --- LOG FINAL LINE FOR THIS TILE ROW ---
+            echo "DEBUG (render_nxn build loop): Adding line for ty=$ty: '$current_line'" >> "$DEBUG_LOG_FILE"
+            grid_lines_nxn+=("$current_line") 
         done
     done
     
@@ -373,24 +445,31 @@ render_large() { # Full screen mode
         if [[ ${#grid_lines_nxn[@]} -eq 0 ]]; then
             buffer+=$(printf "%s" "Error: NxN grid lines array is empty")
         else
-            # Define a max character limit per line to prevent wrapping
-            local max_line_width=$(( term_cols - col_offset - 1 ))
-            [[ $max_line_width -gt $grid_char_width ]] && max_line_width=$grid_char_width
-            
+            # Max width available on screen for this centered block
+            # This is the effective width we want to pad/truncate to.
+            local display_width=$grid_char_width 
+            local max_screen_width_for_line=$(( term_cols - col_offset -1 ))
+             [[ $max_screen_width_for_line -lt 0 ]] && max_screen_width_for_line=0
+             
+            # Use the smaller of the grid's calculated width or the available screen width
+             if [[ $display_width -gt $max_screen_width_for_line ]]; then
+                 display_width=$max_screen_width_for_line
+             fi
+             echo "DEBUG (render_large NxN loop): Final display_width for padding/truncation: $display_width" >> "$DEBUG_LOG_FILE"
+
+
             for ((i=0; i<${#grid_lines_nxn[@]}; i++)); do
-                # DIRECTLY access the NxN array
                 local line_content="${grid_lines_nxn[$i]}"
-                
-                # Sanitize newlines
-                line_content=${line_content//$'\n'/ }
-                
-                # Truncate to max width if needed
-                if [[ ${#line_content} -gt $max_line_width ]]; then
-                    line_content="${line_content:0:$max_line_width}"
-                fi
-                
-                # Add the line content and position for next line
-                buffer+=$(printf "%s\033[$((row_offset + i + 2));$((col_offset + 1))H" "$line_content")
+                line_content=${line_content//$'\n'/ } # Sanitize
+
+                # --- LOG LINE BEING RENDERED ---
+                echo "DEBUG (render_large NxN render loop): Rendering line i=$i: '$line_content'" >> "$DEBUG_LOG_FILE"
+
+                # Pad/truncate the line to the final display_width
+                local final_line=""
+                printf -v final_line "%-${display_width}.${display_width}s" "$line_content"
+
+                buffer+=$(printf "%s\033[$((row_offset + i + 2));$((col_offset + 1))H" "$final_line")
             done
         fi
     else
@@ -518,11 +597,10 @@ main() {
                          if [[ $old_page != $CURRENT_PAGE ]]; then
                             STATUS_MESSAGE="Page $((CURRENT_PAGE+1))/${#PAGES[@]}"
                             echo "DEBUG (input): Changed to page $CURRENT_PAGE" >> "$DEBUG_LOG_FILE"
-                            # If current algo is ca.sh, re-init grid based on new page
-                            if [[ "$ALGO_FILE" == "ca.sh" ]] && declare -F init_grid &>/dev/null; then
-                                echo "DEBUG (input): Re-initializing ca.sh grid for new page $CURRENT_PAGE" >> "$DEBUG_LOG_FILE"
-                                init_grid $CURRENT_PAGE # Pass current page index
-                                # init_grid sets RUNNING=0 and STATUS_MESSAGE
+                            # ADD CHECK FOR grid2-shapes.sh HERE
+                            if [[ "$ALGO_FILE" == "ca.sh" || "$ALGO_FILE" == "grid2-shapes.sh" ]] && declare -F init_grid &>/dev/null; then
+                                echo "DEBUG (input): Re-initializing $ALGO_FILE grid for new page $CURRENT_PAGE" >> "$DEBUG_LOG_FILE"
+                                init_grid # Call init_grid, it reads global CURRENT_PAGE
                             fi
                          else
                              key_pressed=0 # Page didn't change (e.g., only 1 page)
@@ -540,11 +618,10 @@ main() {
                          if [[ $old_page != $CURRENT_PAGE ]]; then
                             STATUS_MESSAGE="Page $((CURRENT_PAGE+1))/${#PAGES[@]}"
                             echo "DEBUG (input): Changed to page $CURRENT_PAGE" >> "$DEBUG_LOG_FILE"
-                            # If current algo is ca.sh, re-init grid based on new page
-                            if [[ "$ALGO_FILE" == "ca.sh" ]] && declare -F init_grid &>/dev/null; then
-                                echo "DEBUG (input): Re-initializing ca.sh grid for new page $CURRENT_PAGE" >> "$DEBUG_LOG_FILE"
-                                init_grid $CURRENT_PAGE # Pass current page index
-                                # init_grid sets RUNNING=0 and STATUS_MESSAGE
+                            # ADD CHECK FOR grid2-shapes.sh HERE
+                            if [[ "$ALGO_FILE" == "ca.sh" || "$ALGO_FILE" == "grid2-shapes.sh" ]] && declare -F init_grid &>/dev/null; then
+                                echo "DEBUG (input): Re-initializing $ALGO_FILE grid for new page $CURRENT_PAGE" >> "$DEBUG_LOG_FILE"
+                                init_grid # Call init_grid, it reads global CURRENT_PAGE
                             fi
                          else
                             key_pressed=0 # Page didn't change
