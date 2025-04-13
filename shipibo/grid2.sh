@@ -1,293 +1,474 @@
-#!/usr/bin/env bash
+#!/bin/bash
+set -x
+# grid2.sh - WFC with 2x2 Tiles
 
-# --- WFC Algorithm: Evolving 2x2 Braille Seed ---
-# Starts with a fixed 2x2 pattern in the center and evolves outwards
-# using Braille pattern compatibility rules.
+# Define rendering strings (similar to claude-2x2, simplified without color for now)
+# These will be needed by the rendering engine (simple_engine.sh)
+declare -gA TILE_TOPS
+declare -gA TILE_BOTS
 
-# Define the specific symbols for the initial seed pattern (using a consistent one)
-SEED_TL="⣿" SEED_TR="⣿"
-SEED_BL="⣿" SEED_BR="⣿"
+TILE_TOPS["STRAIGHT_H"]="═══ ═══"
+TILE_BOTS["STRAIGHT_H"]="═══ ═══"
+TILE_TOPS["STRAIGHT_V"]=" ║   ║ "
+TILE_BOTS["STRAIGHT_V"]=" ║   ║ "
+TILE_TOPS["BEND_NE"]="    ║ "
+TILE_BOTS["BEND_NE"]="═══ ═╝ "
+TILE_TOPS["BEND_NW"]=" ║     "
+TILE_BOTS["BEND_NW"]=" ╚═ ═══"
+TILE_TOPS["BEND_SE"]="═══ ═╗ "
+TILE_BOTS["BEND_SE"]="    ║ "
+TILE_TOPS["BEND_SW"]=" ╔═ ═══"
+TILE_BOTS["BEND_SW"]=" ║     "
+TILE_TOPS["CROSS"]=" ║   ║ " # Using vertical bars for cross, consistent look
+TILE_TOPS["CROSS"]="═╬═ ═╬═" # Needs careful thought on representation
+TILE_TOPS["T_NORTH"]=" ║   ║ "
+TILE_TOPS["T_NORTH"]="═╩═ ═══"
+TILE_TOPS["T_EAST"]=" ║     "
+TILE_TOPS["T_EAST"]=" ╠═ ═══"
+TILE_TOPS["T_SOUTH"]="═╦═ ═══"
+TILE_TOPS["T_SOUTH"]=" ║   ║ "
+TILE_TOPS["T_WEST"]="    ║ "
+TILE_TOPS["T_WEST"]="═══ ═╣ "
+# TILE_TOPS["EMPTY"]="       " # Omitting EMPTY for now
+# TILE_BOTS["EMPTY"]="       "
 
-# Full set of symbols for the algorithm to use (including seed symbols)
-# Make sure the seed symbols are included here if not already.
-# Using the same set as wfc-basic.sh for consistency:
-# ⠀(00) ⠉(09) ⠤(24) ⣀(06) ⡇(87) ⢸(E0) ⠿(3F) ⣶(E3) ⣤(6C) ⣿(FF)
-# Seed symbol ⣿ (FF) is already included.
-export SYMBOLS=("⠀" "⠉" "⠤" "⣀" "⡇" "⢸" "⠿" "⣶" "⣤" "⣿")
-ERROR_SYMBOL="?"
+# Update SYMBOLS array to use names
+export SYMBOLS=("STRAIGHT_H" "STRAIGHT_V" "BEND_NE" "BEND_NW" "BEND_SE" "BEND_SW" "CROSS" "T_NORTH" "T_EAST" "T_SOUTH" "T_WEST")
 
-# Export documentation pages
-export PAGES=(
-    "EVOLVING 2x2 BRAILLE SEED
+# Define ERROR_SYMBOL for contradictions
+ERROR_SYMBOL="ERROR"
 
-Starts with a 2x2 Braille block
-(⣿⣿ / ⣿⣿) in the center.
+# Refactored PAGES array using multi-line strings
+PAGES=(
+"WFC: 2x2 Tube Network Theme
+---------------------------
+Generates interconnected pipe
+patterns using 2x2 tiles based
+on Wave Function Collapse."
 
-Then evolves outwards using WFC
-with Braille compatibility rules."
-    "HOW IT WORKS
+"WFC Rules: 2x2 Tube Theme
+---------------------------
+Defines which 2x2 pipe tiles
+can connect based on matching
+openings on adjacent edges."
 
-1. init_grid places the 2x2 seed.
-2. propagate updates neighbors.
-3. update_algorithm finds the cell
-   with Minimum Entropy (fewest
-   valid options) and collapses it.
-4. Repeats step 3, growing from
-   the initial seed based on rules."
-    "BRAILLE RULES
-
-Neighboring Braille patterns must
-have matching dots along their
-shared edge to be valid.
-
-This ensures visual continuity
-as the pattern evolves."
-    "SYMBOLS USED
-
-Seed: ⣿⣿ / ⣿⣿
-Full Set: ${SYMBOLS[*]}"
+"WFC Implementation Notes
+---------------------------
+- Uses tile names internally.
+- Engine render modified.
+- Propagation checks tile compatibility."
 )
+export PAGES # Export for the engine
 
 
-# --- Braille Helper Functions & Rule Generation (Copied from wfc-basic.sh) ---
+# ───── Helper Functions ─────
 
-# Associative array to map Braille char to its 8-bit pattern
-declare -gA BRAILLE_PATTERNS
-BRAILLE_PATTERNS=(
-    ["⠀"]=0x00 ["⠉"]=0x09 ["⠤"]=0x24 ["⣀"]=0x06 ["⡇"]=0x87
-    ["⢸"]=0xE0 ["⠿"]=0x3F ["⣶"]=0xE3 ["⣤"]=0x6C ["⣿"]=0xFF
-    # Note: Seed patterns (now ⣿) are already in the base set
-)
-# Precompute dot presence for edge checking
-declare -gA BRAILLE_DOTS
-_init_braille_dots() {
-    local char bits pat i dot_val
-    BRAILLE_DOTS=() # Clear if re-sourcing
-    for char in "${!BRAILLE_PATTERNS[@]}"; do
-        bits=${BRAILLE_PATTERNS[$char]}
-        pat=""
-        for (( i=0; i<8; i++ )); do
-            dot_val=$((1 << i))
-            if (( (bits & dot_val) > 0 )); then pat="1${pat}"; else pat="0${pat}"; fi
-        done
-        BRAILLE_DOTS["$char"]="$pat"
-    done
-}
-_init_braille_dots # Call helper to initialize
-
-# Check Braille edge compatibility
-check_braille_compatibility() {
-    local char1="$1" char2="$2" dir="$3"
-    local pat1="${BRAILLE_DOTS[$char1]}" pat2="${BRAILLE_DOTS[$char2]}"
-    local compatible=1
-    if [[ -z "$pat1" || -z "$pat2" ]]; then return 1; fi
-    case "$dir" in
-        right) [[ "${pat1:3:1}" == "${pat2:0:1}" ]] || compatible=0; [[ "${pat1:4:1}" == "${pat2:1:1}" ]] || compatible=0; [[ "${pat1:5:1}" == "${pat2:2:1}" ]] || compatible=0; [[ "${pat1:7:1}" == "${pat2:6:1}" ]] || compatible=0 ;;
-        left)  [[ "${pat1:0:1}" == "${pat2:3:1}" ]] || compatible=0; [[ "${pat1:1:1}" == "${pat2:4:1}" ]] || compatible=0; [[ "${pat1:2:1}" == "${pat2:5:1}" ]] || compatible=0; [[ "${pat1:6:1}" == "${pat2:7:1}" ]] || compatible=0 ;;
-        down)  [[ "${pat1:2:1}" == "${pat2:0:1}" ]] || compatible=0; [[ "${pat1:5:1}" == "${pat2:1:1}" ]] || compatible=0; [[ "${pat1:6:1}" == "${pat2:3:1}" ]] || compatible=0; [[ "${pat1:7:1}" == "${pat2:4:1}" ]] || compatible=0 ;;
-        up)    [[ "${pat1:0:1}" == "${pat2:2:1}" ]] || compatible=0; [[ "${pat1:1:1}" == "${pat2:5:1}" ]] || compatible=0; [[ "${pat1:3:1}" == "${pat2:6:1}" ]] || compatible=0; [[ "${pat1:4:1}" == "${pat2:7:1}" ]] || compatible=0 ;;
-        *) return 1 ;;
-    esac
-    if (( compatible == 1 )); then return 0; else return 1; fi
-}
-
-# Initialize the rules based on Braille compatibility
-init_rules() {
-    rules=() # Clear global rules
-    echo "INFO (grid2.sh-evolve): Initializing Braille rules..." >> "$DEBUG_LOG_FILE"
-    local sym1 sym2 dir allowed_for_sym1
-    _init_braille_dots # Ensure maps are populated
-    for sym1 in "${SYMBOLS[@]}"; do
-        for dir in left right up down; do
-            allowed_for_sym1=""
-            for sym2 in "${SYMBOLS[@]}"; do
-                if check_braille_compatibility "$sym1" "$sym2" "$dir"; then
-                    allowed_for_sym1+="$sym2 "
-                fi
-            done
-            rules["${sym1}_${dir}"]="${allowed_for_sym1% }"
-        done
-    done
-    echo "INFO (grid2.sh-evolve): Rules initialized." >> "$DEBUG_LOG_FILE"
-}
-
-# --- Propagation Logic (Copied from wfc-basic.sh) ---
-
-filter_options() {
-    local current_options_str="$1" allowed_options_str="$2" result=""
-    local -a current_options=($current_options_str)
-    for opt in "${current_options[@]}"; do
-        if [[ " $allowed_options_str " == *" $opt "* ]]; then result+="$opt "; fi
-    done
-    echo "${result% }"
-}
-
+# Function to propagate constraints to neighboring cells
+# Modifies the global 'grid' and 'possibilities' arrays
 propagate() {
-    local y_start="$1" x_start="$2" # Coordinates that triggered propagation
-    local -a queue=("$y_start,$x_start") # Start queue with the trigger cell
-    local -A processed_in_wave
-    processed_in_wave["$y_start,$x_start"]=1
+    local y="$1"
+    local x="$2"
+    local -a queue=() # Queue for cells whose options *might* need re-evaluation
 
-    while (( ${#queue[@]} > 0 )); do
-        local current_key="${queue[0]}"; queue=("${queue[@]:1}")
-        local cy="${current_key%,*}" cx="${current_key#*,}"
-        if [[ "${grid[$current_key]}" == "$ERROR_SYMBOL" ]]; then continue; fi # Don't propagate from error state
+    # Initial neighbors to check (adjacent to the collapsed cell y,x)
+    local -a directions=("left" "right" "up" "down")
+    for dir in "${directions[@]}"; do
+         local ny; local nx
+         case "$dir" in
+            left)  ny="$y"; nx=$((x - 1)); ;;
+            right) ny="$y"; nx=$((x + 1)); ;;
+            up)    ny=$((y - 1)); nx="$x"; ;;
+            down)  ny=$((y + 1)); nx="$x"; ;;
+         esac
+         local nkey="$ny,$nx"
+         # Add neighbor to queue if it's within bounds and not already collapsed
+         if (( ny >= 0 && ny < ROWS && nx >= 0 && nx < COLS )) && [[ "${collapsed[$nkey]:-0}" == "0" ]]; then
+             # Check if already in queue to avoid duplicates (simple check)
+             local in_queue=0
+             for item in "${queue[@]}"; do [[ "$item" == "$nkey" ]] && { in_queue=1; break; }; done
+             [[ $in_queue -eq 0 ]] && queue+=("$nkey")
+         fi
+    done
 
-        local -a directions=("left" "right" "up" "down")
-        for dir in "${directions[@]}"; do
-            local ny nx opposite_dir
-            case "$dir" in
-                left)  ny="$cy"; nx=$((cx - 1)); opposite_dir="right"; ;;
-                right) ny="$cy"; nx=$((cx + 1)); opposite_dir="left"; ;;
-                up)    ny=$((cy - 1)); nx="$cx"; opposite_dir="down"; ;;
-                down)  ny=$((cy + 1)); nx="$cx"; opposite_dir="up"; ;;
-            esac
-            local nkey="$ny,$nx"
+    local -A processed_in_wave # Track cells processed in this *entire* propagation wave to prevent infinite loops
 
-            # Check bounds and if neighbor is already collapsed
-            if (( ny < 0 || ny >= ROWS || nx < 0 || nx >= COLS )) || \
-               [[ "${collapsed[$nkey]}" == "1" ]]; then continue; fi
+    local processed_count=0 # Debug counter
+    local max_processed=10000 # Limit processing steps to prevent runaway loops
 
-            # Calculate allowed symbols for the neighbor based on ALL possibilities of the current cell
-            local allowed_symbols_for_neighbor=""
-            local -a current_cell_options=(${possibilities[$current_key]})
-            if (( ${#current_cell_options[@]} == 0 )); then continue; fi # Skip if current cell has no options
+    while (( ${#queue[@]} > 0 && processed_count < max_processed )); do
+        ((processed_count++))
+        local current_key="${queue[0]}"
+        queue=("${queue[@]:1}") # Dequeue
 
-            for current_opt in "${current_cell_options[@]}"; do
-                 local rule_key="${current_opt}_${dir}"
-                 if [[ -v rules["$rule_key"] ]]; then allowed_symbols_for_neighbor+=" ${rules[$rule_key]}"; fi
-            done
-            allowed_symbols_for_neighbor=$(echo "$allowed_symbols_for_neighbor" | tr ' ' '\n' | sort -u | tr '\n' ' ')
-            allowed_symbols_for_neighbor="${allowed_symbols_for_neighbor% }"
-            allowed_symbols_for_neighbor="${allowed_symbols_for_neighbor# }"
+        # Skip if already processed *in this wave*
+        if [[ -v processed_in_wave["$current_key"] ]]; then
+            # echo "DEBUG (propagate): Skipping $current_key (already processed in wave)" >> "$DEBUG_LOG_FILE"
+            continue
+        fi
+        processed_in_wave["$current_key"]=1
+        # echo "DEBUG (propagate): Processing $current_key (${#queue[@]} left in queue)" >> "$DEBUG_LOG_FILE"
 
-            if [[ -z "$allowed_symbols_for_neighbor" ]]; then continue; fi
 
-            # Filter neighbor's options
-            local neighbor_current_options="${possibilities[$nkey]}"
-            local neighbor_new_options=$(filter_options "$neighbor_current_options" "$allowed_symbols_for_neighbor")
+        local cy="${current_key%,*}"
+        local cx="${current_key#*,}"
+        # Ensure grid entry exists before accessing
+        local original_options="${grid[$current_key]-}" # Space-separated tile names
+        local changed=0 # Flag to track if options changed
 
-            # If options changed, update and enqueue neighbor
-            if [[ "$neighbor_current_options" != "$neighbor_new_options" ]]; then
-                 possibilities[$nkey]="$neighbor_new_options"
-                 grid[$nkey]="$neighbor_new_options" # Keep grid entry as possibilities for render
+        # If original options were already ERROR, skip (shouldn't happen if enqueue logic is right)
+        if [[ "$original_options" == "$ERROR_SYMBOL" ]]; then
+             echo "WARN (propagate): Trying to process cell $current_key already marked as ERROR." >> "$DEBUG_LOG_FILE"
+             continue
+        fi
 
-                 if [[ -z "$neighbor_new_options" ]]; then
-                     grid[$nkey]="$ERROR_SYMBOL"; possibilities[$nkey]=""; collapsed[$nkey]=1
-                     echo "WARN (grid2.sh-propagate): Contradiction at $nkey" >> "$DEBUG_LOG_FILE"
-                 elif [[ ! -v processed_in_wave["$nkey"] ]]; then
-                     queue+=("$nkey"); processed_in_wave["$nkey"]=1
+        # --- Filter current cell's options based on *all* neighbors ---
+        local valid_options_for_current=""
+        # Ensure array is created even if original_options is empty
+        local -a current_symbols_arr=($original_options)
+
+        # Handle case where current cell somehow has no options before filtering
+        if [[ ${#current_symbols_arr[@]} -eq 0 && "${collapsed[$current_key]:-0}" == "0" ]]; then
+             echo "WARN (propagate): Cell $current_key has no options before filtering, marking ERROR." >> "$DEBUG_LOG_FILE"
+             grid[$current_key]="$ERROR_SYMBOL"
+             possibilities[$current_key]="$ERROR_SYMBOL"
+             collapsed[$current_key]=1 # Mark as collapsed (with error)
+             changed=1 # Mark as changed to stop further processing here
+             continue # Skip neighbor checks for this cell
+        fi
+
+        echo "DEBUG (propagate): Processing $current_key. Original opts: [${original_options}]" >> "$DEBUG_LOG_FILE"
+
+        for potential_sym in "${current_symbols_arr[@]}"; do
+             local possible_for_all_neighbors=1 # Assume possible initially
+             echo "DEBUG (propagate):   Checking potential '$potential_sym' for $current_key" >> "$DEBUG_LOG_FILE"
+
+             # Check this potential_sym against *all* neighbors
+             for dir in "${directions[@]}"; do
+                 local ny; local nx; local opposite_dir
+                 case "$dir" in
+                    left)  ny="$cy"; nx=$((cx - 1)); opposite_dir="right"; ;;
+                    right) ny="$cy"; nx=$((cx + 1)); opposite_dir="left"; ;;
+                    up)    ny=$((cy - 1)); nx="$cx"; opposite_dir="down"; ;;
+                    down)  ny=$((cy + 1)); nx="$cx"; opposite_dir="up"; ;;
+                 esac
+                 local nkey="$ny,$nx"
+
+                 # Skip if neighbor is out of bounds
+                 if (( ny < 0 || ny >= ROWS || nx < 0 || nx >= COLS )); then continue; fi
+
+                 # Get neighbor's options (could be single collapsed symbol or list)
+                 # Ensure grid entry exists before accessing
+                 local neighbor_options="${grid[$nkey]-}"
+                 # Handle ERROR state in neighbor
+                 if [[ "$neighbor_options" == "$ERROR_SYMBOL" ]]; then continue; fi
+
+                 local -a neighbor_symbols_arr=($neighbor_options)
+                 # Handle case where neighbor might have empty options (should be ERROR)
+                 if [[ ${#neighbor_symbols_arr[@]} -eq 0 && "${collapsed[$nkey]:-0}" == "0" ]]; then
+                      echo "WARN (propagate): Neighbor $nkey of $current_key has 0 options but isn't collapsed. Potential issue." >> "$DEBUG_LOG_FILE"
+                      # We might treat this as a reason potential_sym is impossible, depending on desired strictness.
+                      # For now, let's assume it doesn't restrict potential_sym.
+                      continue
                  fi
+
+                 local neighbor_allows_potential_sym=0
+
+                 for neighbor_sym in "${neighbor_symbols_arr[@]}"; do
+                     local rule_key="${neighbor_sym}_${opposite_dir}"
+                     local allowed_by_this_neighbor_sym="${rules[$rule_key]-}"
+
+                     if [[ " ${allowed_by_this_neighbor_sym} " == *" ${potential_sym} "* ]]; then
+                         neighbor_allows_potential_sym=1
+                         break
+                     fi
+                 done
+
+                 if [[ $neighbor_allows_potential_sym -eq 0 ]]; then
+                     possible_for_all_neighbors=0
+                     echo "DEBUG (propagate):     '$potential_sym' rejected for $current_key by neighbor $nkey ($dir) [Neighbor opts: ${neighbor_options}]" >> "$DEBUG_LOG_FILE"
+                     break
+                 fi
+             done # End loop through directions for potential_sym
+
+             if [[ $possible_for_all_neighbors -eq 1 ]]; then
+                 valid_options_for_current+="$potential_sym "
+                 echo "DEBUG (propagate):     '$potential_sym' accepted for $current_key" >> "$DEBUG_LOG_FILE"
+             fi
+        done # End loop through potential symbols for current cell
+
+        local new_options="${valid_options_for_current% }"
+        echo "DEBUG (propagate): Finished $current_key. New opts: [$new_options]" >> "$DEBUG_LOG_FILE"
+
+        # Update if options have changed
+        if [[ "$original_options" != "$new_options" ]]; then
+            # echo "DEBUG (propagate): Options for $current_key changed from '$original_options' to '$new_options'" >> "$DEBUG_LOG_FILE"
+            changed=1
+            grid[$current_key]="$new_options"
+            possibilities[$current_key]="$new_options" # Keep possibilities synced
+
+            if [[ -z "$new_options" ]]; then
+                # Contradiction! Mark cell
+                grid[$current_key]="$ERROR_SYMBOL"
+                possibilities[$current_key]="$ERROR_SYMBOL"
+                collapsed[$current_key]=1 # Mark as collapsed (with error)
+                echo "WARN (grid2.sh): Contradiction at $current_key. Options became empty." >> "$DEBUG_LOG_FILE"
+                # Don't enqueue neighbors of a contradicted cell
+            else
+                # Options reduced, enqueue *its* neighbors for re-evaluation
+                 for dir in "${directions[@]}"; do
+                     local nny; local nnx
+                     case "$dir" in
+                        left)  nny="$cy"; nnx=$((cx - 1)); ;;
+                        right) nny="$cy"; nnx=$((cx + 1)); ;;
+                        up)    nny=$((cy - 1)); nnx="$cx"; ;;
+                        down)  nny=$((cy + 1)); nnx="$cx"; ;;
+                     esac
+                     local nnkey="$nny,$nnx"
+                     # Add neighbor to queue if it's within bounds, not collapsed, and not already processed in this wave
+                     if (( nny >= 0 && nny < ROWS && nnx >= 0 && nnx < COLS )) && \
+                        [[ "${collapsed[$nnkey]:-0}" == "0" && ! -v processed_in_wave["$nnkey"] ]]; then
+                           # Check if already in queue to avoid duplicates
+                           local nn_in_queue=0
+                           for item in "${queue[@]}"; do [[ "$item" == "$nnkey" ]] && { nn_in_queue=1; break; }; done
+                           if [[ $nn_in_queue -eq 0 ]]; then
+                              # echo "DEBUG (propagate): Enqueueing neighbor $nnkey due to change at $current_key" >> "$DEBUG_LOG_FILE"
+                              queue+=("$nnkey")
+                           fi
+                     fi
+                 done
             fi
-        done # directions
-    done # queue
+        fi # End if options changed
+    done # End while queue not empty
+
+    if (( processed_count >= max_processed )); then
+         echo "ERROR (propagate): Exceeded max processing steps ($max_processed). Possible infinite loop." >> "$DEBUG_LOG_FILE"
+         STATUS_MESSAGE="Error: Propagation loop detected."
+         # Maybe mark state as errored? For now, just log and stop propagation.
+    fi
 }
 
 
-# --- Engine-Called Functions ---
+# ───── Engine-Called Functions ─────
 
-# Initialize the grid with the 2x2 seed in the center
+# Initialize connection rules (2x2 Tube Network Theme)
+init_rules() {
+    # Add specific log at top of function
+    echo "DEBUG (grid2.sh): init_rules starting with PAGES = ${#PAGES[@]} elements" >> "$DEBUG_LOG_FILE"
+    
+    rules=() # Clear global rules
+    # Use grid2.sh in log message
+    echo "INFO (grid2.sh): Initializing 2x2 Tube Network rules..." >> "$DEBUG_LOG_FILE"
+
+    # Define which tiles have openings on each side
+    local opens_right="STRAIGHT_H BEND_NE BEND_SE CROSS T_NORTH T_SOUTH T_WEST"
+    local opens_left="STRAIGHT_H BEND_NW BEND_SW CROSS T_NORTH T_SOUTH T_EAST"
+    local opens_top="STRAIGHT_V BEND_NW BEND_NE CROSS T_EAST T_WEST T_SOUTH"
+    local opens_bottom="STRAIGHT_V BEND_SW BEND_SE CROSS T_EAST T_WEST T_NORTH"
+
+    # For a tile TILE, rules["TILE_left"] lists tiles that can be placed TO ITS LEFT
+    # (meaning the neighbor must have an opening on its RIGHT side)
+    rules["STRAIGHT_H_left"]="$opens_right"; rules["STRAIGHT_H_right"]="$opens_left"; rules["STRAIGHT_H_up"]=""; rules["STRAIGHT_H_down"]=""
+    rules["STRAIGHT_V_left"]=""; rules["STRAIGHT_V_right"]=""; rules["STRAIGHT_V_up"]="$opens_bottom"; rules["STRAIGHT_V_down"]="$opens_top"
+    rules["BEND_NE_left"]=""; rules["BEND_NE_right"]="$opens_left"; rules["BEND_NE_up"]="$opens_bottom"; rules["BEND_NE_down"]=""
+    rules["BEND_NW_left"]="$opens_right"; rules["BEND_NW_right"]=""; rules["BEND_NW_up"]="$opens_bottom"; rules["BEND_NW_down"]=""
+    rules["BEND_SE_left"]=""; rules["BEND_SE_right"]="$opens_left"; rules["BEND_SE_up"]=""; rules["BEND_SE_down"]="$opens_top"
+    rules["BEND_SW_left"]="$opens_right"; rules["BEND_SW_right"]=""; rules["BEND_SW_up"]=""; rules["BEND_SW_down"]="$opens_top"
+    rules["T_NORTH_left"]="$opens_right"; rules["T_NORTH_right"]="$opens_left"; rules["T_NORTH_up"]="$opens_bottom"; rules["T_NORTH_down"]=""
+    rules["T_EAST_left"]=""; rules["T_EAST_right"]="$opens_left"; rules["T_EAST_up"]="$opens_bottom"; rules["T_EAST_down"]="$opens_top"
+    rules["T_SOUTH_left"]="$opens_right"; rules["T_SOUTH_right"]="$opens_left"; rules["T_SOUTH_up"]=""; rules["T_SOUTH_down"]="$opens_top"
+    rules["T_WEST_left"]="$opens_right"; rules["T_WEST_right"]=""; rules["T_WEST_up"]="$opens_bottom"; rules["T_WEST_down"]="$opens_top"
+    rules["CROSS_left"]="$opens_right"; rules["CROSS_right"]="$opens_left"; rules["CROSS_up"]="$opens_bottom"; rules["CROSS_down"]="$opens_top"
+
+    # Ensure all defined symbols have entries for all directions (even if empty)
+    local -a all_dirs=("left" "right" "up" "down")
+    for sym in "${SYMBOLS[@]}"; do
+        for dir in "${all_dirs[@]}"; do
+            local rule_key="${sym}_${dir}"
+            printf -v rules["$rule_key"] '%s' "${rules[$rule_key]:-}" # Safely handle empty/unset
+        done
+    done
+    echo "INFO (grid2.sh): 2x2 Tube Network rules initialized." >> "$DEBUG_LOG_FILE"
+}
+
+# Initialize grid with all possibilities and seed a starting tile
 init_grid() {
-    grid=() possibilities=() collapsed=() # Clear globals
-    local all_symbols="${SYMBOLS[*]}"
-    echo "INFO (grid2.sh-evolve): Initializing grid (${ROWS}x${COLS}) for central 2x2 seed." >> "$DEBUG_LOG_FILE"
+    # Explicitly clear global arrays (already done by engine, but good practice)
+    grid=()
+    possibilities=()
+    collapsed=()
+    local all_symbols_str="${SYMBOLS[*]}" # Space-separated list of all tile names
 
-    # 1. Initialize all cells with full possibilities
-    for ((y=0; y<ROWS; y++)); do
-        for ((x=0; x<COLS; x++)); do
+    echo "INFO (grid2.sh): Initializing grid (${ROWS}x${COLS})." >> "$DEBUG_LOG_FILE"
+
+    for ((y = 0; y < ROWS; y++)); do
+        for ((x = 0; x < COLS; x++)); do
             local key="$y,$x"
-            possibilities[$key]="$all_symbols"
-            grid[$key]="$all_symbols" # Set grid to possibilities for renderer
+            grid[$key]="$all_symbols_str"
+            possibilities[$key]="$all_symbols_str"
             collapsed[$key]=0
         done
     done
 
-    # 2. Calculate center and define seed coordinates
-    local cy=$(( (ROWS - 1) / 2 )) # Center Y (adjust for 0-based index)
-    local cx=$(( (COLS - 1) / 2 )) # Center X (adjust for 0-based index)
-    local key_tl="$cy,$cx"
-    local key_tr="$cy,$((cx+1))"
-    local key_bl="$((cy+1)),$cx"
-    local key_br="$((cy+1)),$((cx+1))"
-    local seed_keys=("$key_tl" "$key_tr" "$key_bl" "$key_br")
-    # Use the SEED variables defined at the top
-    local seed_symbols=("$SEED_TL" "$SEED_TR" "$SEED_BL" "$SEED_BR")
+    # --- Seed the grid (Simple Center Seed) ---
+    local seed_y=$((ROWS / 2))
+    local seed_x=$((COLS / 2))
+    local seed_key="$seed_y,$seed_x"
 
-    echo "INFO (grid2.sh-evolve): Placing seed at ($cy,$cx) area." >> "$DEBUG_LOG_FILE"
-
-    # 3. Set the seed pattern and mark as collapsed
-    local i=0
-    for key in "${seed_keys[@]}"; do
-        local y_k="${key%,*}" x_k="${key#*,}"
-        # Ensure coordinates are within bounds before setting
-        if (( y_k >= 0 && y_k < ROWS && x_k >= 0 && x_k < COLS )); then
-            grid[$key]="${seed_symbols[$i]}"
-            possibilities[$key]="${seed_symbols[$i]}"
-            collapsed[$key]=1
+    if [[ -v grid["$seed_key"] ]]; then
+        local -a seed_options=($all_symbols_str) # Start with all symbols as options for seed
+        if (( ${#seed_options[@]} > 0 )); then
+            # Pick a random valid starting symbol (any symbol is valid initially)
+            local seed_symbol="${seed_options[$((RANDOM % ${#seed_options[@]}))]}"
+            grid[$seed_key]="$seed_symbol"
+            possibilities[$seed_key]="$seed_symbol"
+            collapsed[$seed_key]=1
+            echo "INFO (grid2.sh): Seeded grid at $seed_key with '$seed_symbol'." >> "$DEBUG_LOG_FILE"
+            # Propagate from the seed immediately
+            propagate "$seed_y" "$seed_x"
+        else
+             echo "WARN (grid2.sh): Cannot seed at $seed_key, no initial options?" >> "$DEBUG_LOG_FILE"
         fi
-        ((i++))
-    done
+    else
+        echo "WARN (grid2.sh): Seed key $seed_key invalid." >> "$DEBUG_LOG_FILE"
+    fi
 
-    # 4. Propagate from each seed cell
-    for key in "${seed_keys[@]}"; do
-         local y_k="${key%,*}" x_k="${key#*,}"
-         if (( y_k >= 0 && y_k < ROWS && x_k >= 0 && x_k < COLS )) && [[ "${collapsed[$key]}" == 1 ]]; then
-             propagate "$y_k" "$x_k"
-         fi
+    # Check for immediate contradictions after seeding and initial propagation
+    local contradictions_after_init=0
+    for key in "${!grid[@]}"; do
+        if [[ "${grid[$key]}" == "$ERROR_SYMBOL" ]]; then
+             contradictions_after_init=1
+             break
+        fi
     done
-
-    STATUS_MESSAGE="Evolving 2x2 Grid Initialized"
-    echo "INFO (grid2.sh-evolve): Grid initialized and seeded." >> "$DEBUG_LOG_FILE"
+    if [[ $contradictions_after_init -eq 1 ]]; then
+         echo "ERROR (grid2.sh): Contradiction detected immediately after initialization and seeding!" >> "$DEBUG_LOG_FILE"
+         STATUS_MESSAGE="Error: Initial contradiction."
+         # Optionally stop execution here, but engine loop will catch it too
+    else
+         echo "INFO (grid2.sh): Grid initialized and seeded. ${#grid[@]} cells." >> "$DEBUG_LOG_FILE"
+    fi
 }
 
-# Core WFC update step (Copied from wfc-basic.sh)
+# Find cell with minimum entropy and collapse it
 update_algorithm() {
-    # Find cell with lowest entropy (>0)
-    local min_entropy=9999 candidates=() all_collapsed=1 potential_contradiction=0
-    for key in "${!possibilities[@]}"; do
-        if [[ "${collapsed[$key]}" == "0" ]]; then
-            all_collapsed=0
-            local opts_str="${possibilities[$key]}"
-            if [[ -z "$opts_str" ]]; then
-                potential_contradiction=1; grid[$key]="$ERROR_SYMBOL"; collapsed[$key]=1; continue
+    local min_entropy=99999 # Use a large number (number of symbols + 1 ok too)
+    local -a candidates=()
+    local potential_contradiction=0
+    local all_cells_collapsed_check=1 # Assume true initially
+
+    # --- Find cell(s) with minimum entropy ---
+    for key in "${!collapsed[@]}"; do
+        # Ensure collapsed state exists before checking
+        if [[ "${collapsed[$key]:-0}" == "0" ]]; then
+            all_cells_collapsed_check=0 # Found an uncollapsed cell
+            # Ensure grid entry exists before accessing
+            local current_options="${grid[$key]-}" # Space-separated tile names
+
+            # Check for explicit contradiction marker
+            if [[ "$current_options" == "$ERROR_SYMBOL" ]]; then
+                potential_contradiction=1
+                # Already marked as error, don't consider for entropy
+                # Ensure it's marked as collapsed if it wasn't already
+                [[ "${collapsed[$key]}" == "0" ]] && collapsed[$key]=1
+                continue
             fi
-            local opts=($opts_str) entropy=${#opts[@]}
-            if (( entropy > 0 )); then
-                if (( entropy < min_entropy )); then
-                    min_entropy=$entropy; candidates=("$key")
-                elif (( entropy == min_entropy )); then candidates+=("$key"); fi
-            elif (( entropy == 0 )); then # Should be caught by -z
-                 potential_contradiction=1; grid[$key]="$ERROR_SYMBOL"; collapsed[$key]=1
+
+            # Calculate entropy (number of possible tile names)
+            local -a opts=($current_options)
+            local entropy=${#opts[@]}
+
+            # Check for implicit contradiction (empty options list but not marked ERROR)
+            if (( entropy == 0 )); then
+                # This case should ideally be caught by propagate setting ERROR_SYMBOL
+                potential_contradiction=1
+                grid[$key]="$ERROR_SYMBOL"
+                possibilities[$key]="$ERROR_SYMBOL"
+                collapsed[$key]=1 # Mark error cell as collapsed
+                echo "WARN (grid2.sh Update): Cell $key found with 0 options, marking ERROR." >> "$DEBUG_LOG_FILE"
+                continue # Don't consider for minimum entropy
+            fi
+
+            # Update minimum entropy and candidates
+            if (( entropy < min_entropy )); then
+                min_entropy=$entropy
+                candidates=("$key") # New minimum found, reset candidates
+            elif (( entropy == min_entropy )); then
+                # Add to candidates with same minimum, avoid duplicates just in case
+                local exists=0
+                for cand in "${candidates[@]}"; do [[ "$cand" == "$key" ]] && { exists=1; break; }; done
+                [[ $exists -eq 0 ]] && candidates+=("$key")
             fi
         fi
     done
 
-    if [[ $all_collapsed -eq 1 ]]; then
-        STATUS_MESSAGE="Evolving 2x2 Grid Complete!"; return 1
-    fi
-    if (( ${#candidates[@]} == 0 )); then
-         if [[ $potential_contradiction -eq 1 ]]; then STATUS_MESSAGE="Evolving 2x2 Grid Error: Contradiction"
-         else STATUS_MESSAGE="Evolving 2x2 Grid Error: No candidates"; fi
-         return 1
+    # --- Check Results ---
+    if [[ $all_cells_collapsed_check -eq 1 ]]; then
+        # Verify no contradictions remain among collapsed cells
+        local final_contradiction=0
+        for key in "${!grid[@]}"; do
+            if [[ "${grid[$key]}" == "$ERROR_SYMBOL" ]]; then
+                final_contradiction=1
+                break
+            fi
+        done
+        if [[ $final_contradiction -eq 1 ]]; then
+            STATUS_MESSAGE="WFC Error: Completed with contradictions."
+            echo "ERROR (grid2.sh): All cells collapsed, but contradictions remain." >> "$DEBUG_LOG_FILE"
+        else
+            STATUS_MESSAGE="WFC Complete! (All collapsed)"
+            echo "INFO (grid2.sh): All cells collapsed successfully." >> "$DEBUG_LOG_FILE"
+        fi
+        return 1 # Signal completion or completed-with-error
     fi
 
-    # Collapse a random candidate
+    if (( ${#candidates[@]} == 0 )); then
+        if [[ $potential_contradiction -eq 1 ]]; then
+            STATUS_MESSAGE="WFC Error: Contradiction detected."
+            echo "ERROR (grid2.sh): Contradiction detected (no candidates with >0 entropy)." >> "$DEBUG_LOG_FILE"
+        else
+            # Should not happen if entropy calculation and checks are correct
+            STATUS_MESSAGE="WFC Error: No candidates found, unexpected state."
+            echo "ERROR (grid2.sh): No candidates found, likely stuck or error in logic." >> "$DEBUG_LOG_FILE"
+        fi
+        return 1 # Signal error/stuck
+    fi
+
+    # --- Collapse Chosen Candidate (Random Pick among minimum entropy cells) ---
     local pick="${candidates[$((RANDOM % ${#candidates[@]}))]}"
     local y="${pick%,*}" x="${pick#*,}"
-    local options=(${possibilities[$pick]})
-    if (( ${#options[@]} == 0 )); then # Safety check
-        STATUS_MESSAGE="Evolving 2x2 Grid Error: Candidate $pick empty"; grid[$pick]="$ERROR_SYMBOL"; collapsed[$pick]=1; return 1
+    local options_str="${grid[$pick]}"
+    local -a options=($options_str) # Array of possible tile names
+
+    # Safeguard - should have been caught earlier if entropy was 0
+    if (( ${#options[@]} == 0 )); then
+        STATUS_MESSAGE="WFC Error: Picked candidate $pick has 0 options!"
+        echo "ERROR (grid2.sh Update): Candidate $pick '$options_str' zero options on collapse. Should be ERROR." >> "$DEBUG_LOG_FILE"
+        grid[$pick]="$ERROR_SYMBOL"
+        possibilities[$pick]="$ERROR_SYMBOL"
+        collapsed[$pick]=1
+        return 1 # Signal error
     fi
-    local symbol="${options[$((RANDOM % ${#options[@]}))]}"
 
-    grid[$pick]="$symbol"
+    # Select random symbol (tile name) from the possibilities
+    local chosen_symbol="${options[$((RANDOM % ${#options[@]}))]}"
+
+    # Update the grid and mark as collapsed
+    grid[$pick]="$chosen_symbol"
+    possibilities[$pick]="$chosen_symbol" # Keep possibilities synced
     collapsed[$pick]=1
-    possibilities[$pick]="$symbol" # Reduce possibilities
+    echo "DEBUG (grid2.sh Update): Collapsed $pick to '$chosen_symbol' (Entropy $min_entropy)." >> "$DEBUG_LOG_FILE"
 
-    # Propagate constraints
+    # Propagate the constraints starting from the neighbors of the collapsed cell
     propagate "$y" "$x"
 
-    local collapsed_count=0; for k in "${!collapsed[@]}"; do [[ "${collapsed[$k]}" == "1" ]] && ((collapsed_count++)); done
-    STATUS_MESSAGE="Evolving 2x2 Grid: Collapsed $pick ('$symbol') | $collapsed_count/$((ROWS*COLS))"
-    return 0 # Success
+    # Update status message
+    local collapsed_count=0
+    for k in "${!collapsed[@]}"; do [[ "${collapsed[$k]:-0}" == "1" ]] && ((collapsed_count++)); done
+    local total_cells=$((ROWS * COLS))
+    STATUS_MESSAGE="Collapsed $pick ('$chosen_symbol') | $collapsed_count/$total_cells"
+
+    return 0 # Success, continue
 }
+
+# End of grid2.sh
+set +x
