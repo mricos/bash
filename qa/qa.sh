@@ -8,13 +8,14 @@ QA_DIR="$HOME/.qa"
 
 qq() { qa_query "$@"; }
 q1() { _QA_ENGINE=gpt-3.5-turbo; qa_query "$@"; }
-q2() { _QA_ENGINE=gpt-4-turbo; qa_query "$@"; }
 q3() { _QA_ENGINE=gpt-4o-mini; qa_query "$@"; }
+q2() { _QA_ENGINE=gpt-4-turbo; qa_query "$@"; }
+q4() { _QA_ENGINE=chatgpt-4o-latest; qa_query "$@"; }
 
 
 # Default configurations overwriten by init()
 _QA_ENGINE="gpt-3.5-turbo"             # Default engine
-_QA_ENGINE_ALT="gpt-4-turbo"           # Default alt engine
+_QA_ENGINE_ALT="chatgpt-4o-latest"     # Default alt engine
 _QA_CONTEXT="Write smart, dry answers" # Example default context
 
 _QA_ENGINE_FILE="$QA_DIR/engine"
