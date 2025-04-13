@@ -108,7 +108,7 @@ init_grid() {
         for ((x=0; x<COLS; x++)); do
             local key="$y,$x"
             # Set reasonable defaults for rendering uncollapsed cells
-            grid[$key]="UNCOLLAPSED" 
+            grid[$key]="EMPTY" # Use a more appropriate placeholder name
             possibilities[$key]="." 
             collapsed[$key]=0
         done

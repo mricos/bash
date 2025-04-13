@@ -17,7 +17,7 @@ FULL_SCREEN=0       # Toggle for full screen mode
 EMPTY_DISPLAY=0     # Toggle for replacing dots with spaces
 # Define available algorithms
 declare -a ALGO_FILES=("snake.sh" "wfc-basic.sh" "wfc.sh" "grid2.sh" "grid2-shapes.sh" "blocky.sh" "ca.sh")
-CURRENT_ALGO_INDEX=2 # Start with the third algorithm (wfc.sh)
+CURRENT_ALGO_INDEX=0
 ALGO_FILE="${ALGO_FILES[$CURRENT_ALGO_INDEX]}" # Currently selected file
 STATUS_MESSAGE=""
 CURRENT_PAGE=0
@@ -111,8 +111,51 @@ load_and_init_algorithm() {
 }
 
 # --- Rendering Helper Functions ---
+# File: simple_engine.sh
 
 _build_grid_lines_1x1() {
+    grid_lines_1x1=()
+    # Get the single error character mapping for display, default to '×'
+    local error_char="${TILE_NAME_TO_CHAR[ERROR]:-×}" 
+
+    echo "DEBUG (_build_grid_lines_1x1): Building 1x1 grid lines. Reading from 'possibilities'. Checking 'collapsed'." >> "$DEBUG_LOG_FILE"
+    for ((row=0; row<ROWS; row++)); do
+        local line=""
+        for ((col=0; col<COLS; col++)); do
+            local key="$row,$col"
+            local cell_possibilities="${possibilities[$key]}" # Get content (can be single char or many)
+            local is_collapsed="${collapsed[$key]:-0}"      # Check collapsed status (default 0)
+            local display_char=""                           # Character to actually display
+
+            # Determine the character to display
+            if [[ "$is_collapsed" == "1" ]]; then
+                # Cell IS collapsed - display the single character from possibilities
+                # It should only contain one character if collapsed=1
+                display_char="$cell_possibilities" 
+            else
+                # Cell IS NOT collapsed - display a placeholder
+                display_char="·" 
+            fi
+
+            # Ensure display_char is only one character long (safety check)
+            # If a collapsed cell somehow still has multiple possibilities, show error char
+            if [[ "${#display_char}" -gt 1 ]] && [[ "$is_collapsed" == "1" ]]; then
+                 echo "WARN (_build_grid_lines_1x1): Collapsed cell $key has possibilities '$cell_possibilities'. Displaying error char." >> "$DEBUG_LOG_FILE"
+                 display_char="$error_char"
+            elif [[ -z "$display_char" ]] && [[ "$is_collapsed" == "1" ]]; then
+                 # Handle case where collapsed cell has empty possibilities (shouldn't happen)
+                 echo "WARN (_build_grid_lines_1x1): Collapsed cell $key has empty possibilities. Displaying '?'. " >> "$DEBUG_LOG_FILE"
+                 display_char="?"
+            fi
+
+            # Append the single character (or placeholder) to the line
+            line+="${display_char}"
+        done
+        grid_lines_1x1+=("$line")
+    done
+}
+
+_build_grid_lines_1x1_FUCKED() {
     grid_lines_1x1=()
     echo "DEBUG (_build_grid_lines_1x1): Building grid lines for 1x1 display." >> "$DEBUG_LOG_FILE"
     for ((row=0; row<ROWS; row++)); do
@@ -630,6 +673,11 @@ main() {
                      STATUS_MESSAGE="Empty display mode: $([[ $EMPTY_DISPLAY -eq 1 ]] && echo "ON" || echo "OFF")"
                      echo "DEBUG (input): Toggled empty display mode to $EMPTY_DISPLAY" >> "$DEBUG_LOG_FILE"
                      ;;
+                 r)
+                     echo "DEBUG (input): Generating charset and color report." >> "$DEBUG_LOG_FILE"
+                     generate_charset_and_color_report > charset_color_report.txt
+                     STATUS_MESSAGE="Charset and color report saved to charset_color_report.txt"
+                     ;;
                  *) key_pressed=0 ;; # Unrecognized key, don't re-render if paused
              esac
         fi # End if key pressed
@@ -658,4 +706,38 @@ trap 'tput cnorm; clear; exit' INT TERM EXIT
 
 # Start the engine
 main
+
+generate_charset_and_color_report() {
+    echo "Charset and Color Report"
+    echo "------------------------"
+    # Collect unique symbols
+    declare -A unique_symbols
+    for value in "${grid[@]}"; do
+        unique_symbols["$value"]=1
+    done
+    echo "Symbols used:"
+    for symbol in "${!unique_symbols[@]}"; do
+        echo -e "'$symbol'"
+    done
+
+    # Collect unique colors
+    declare -A unique_colors
+    for color in "${cell_colors[@]}"; do
+        unique_colors["$color"]=1
+    done
+    echo "Colors used:"
+    for color_id in "${!unique_colors[@]}"; do
+        case "$color_id" in
+            "alive")
+                echo -e "$(color_char "$COLOR_ALIVE_FG" "$COLOR_ALIVE_BG" " ALIVE ")"
+                ;;
+            "dead")
+                echo -e "$(color_char "$COLOR_DEAD_FG" "$COLOR_DEAD_BG" " DEAD ")"
+                ;;
+            *)
+                echo "Unknown color ID: $color_id"
+                ;;
+        esac
+    done
+}
 
