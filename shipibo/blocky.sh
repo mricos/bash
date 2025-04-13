@@ -255,25 +255,18 @@ propagate() {
 # --- Color Management ---
 declare -A cell_colors # Store color identifiers (e.g., "1", "2")
 
-# Color Definitions (Ensure these match engine expectations or are self-contained)
-COLOR1_FG="ffffff" # White foreground
-COLOR1_BG="0000aa" # Dark blue background
-COLOR2_FG="ffffff" # White foreground
-COLOR2_BG="00aaaa" # Cyan background
+# Color Definitions (ANSI color codes)
+COLOR1_FG="37"  # White foreground
+COLOR1_BG="44"  # Blue background
+COLOR2_FG="37"  # White foreground
+COLOR2_BG="46"  # Cyan background
 
 # Helper to apply ANSI colors
 color_char() {
-    local fg="$1" bg="$2" char="$3"
-    # Check if fg, bg are 6-digit hex
-    if [[ "$fg" =~ ^[0-9a-fA-F]{6}$ && "$bg" =~ ^[0-9a-fA-F]{6}$ ]]; then
-        printf "\033[38;2;%d;%d;%dm" 0x${fg:0:2} 0x${fg:2:2} 0x${fg:4:2} # Set FG color
-        printf "\033[48;2;%d;%d;%dm" 0x${bg:0:2} 0x${bg:2:2} 0x${bg:4:2} # Set BG color
-        printf "%s" "$char"                                               # Print character
-        printf "\033[0m"                                                  # Reset colors
-    else
-        # Fallback if color codes are invalid
-        printf "%s" "$char"
-    fi
+    local fg_color="$1"
+    local bg_color="$2"
+    local char="$3"
+    echo -e "\033[${fg_color};${bg_color}m${char}\033[0m"
 }
 
 # --- Grid Initialization ---
@@ -458,13 +451,10 @@ update_algorithm() {
     fi
 
     # --- Update Grid and State ---
-    possibilities[$pick]="$base_symbol" # Set possibilities to the chosen symbol
-    collapsed[$pick]=1                # Mark cell as collapsed
-    cell_colors[$pick]="$color_id"     # Store the chosen color ID (or "" for space)
-
-    # === CHANGE HERE: Store plain symbol in grid ===
-    grid[$pick]="$base_symbol" # Store the chosen base symbol (or space)
-    # ===============================================
+    possibilities[$pick]="$base_symbol"     # Set possibilities to the chosen symbol
+    collapsed[$pick]=1                      # Mark cell as collapsed
+    cell_colors[$pick]="$color_id"          # Store the chosen color ID (or "" for space)
+    grid[$pick]="$base_symbol"              # Store the base symbol in the grid (without ANSI codes)
 
     # The old logic using color_char is removed.
     # Rendering with color now depends on the engine interpreting grid + cell_colors.
@@ -478,9 +468,14 @@ update_algorithm() {
     local progress_percent=$(( (collapsed_count * 100) / (ROWS * COLS) ))
     STATUS_MESSAGE="Blocky: Collapsed '$base_symbol' @$pick (Clr $color_id) | $collapsed_count/$((ROWS*COLS)) ($progress_percent%)"
 
+    echo "DEBUG (update_algorithm): grid[$pick]='${grid[$pick]}' at position ($y,$x)" >> "$DEBUG_LOG_FILE"
+    echo "DEBUG (update_algorithm): cell_colors[$pick]='${cell_colors[$pick]}'" >> "$DEBUG_LOG_FILE"
+
     return 0 # Indicate successful step
 }
 
 # Note: render_cell and draw_cell are removed as the engine handles rendering.
 # Note: set_block, log_contradiction, handle_contradiction, get_neighbors removed as
 #       contradiction handling is integrated into propagate/update_algorithm.
+
+export -f color_char

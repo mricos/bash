@@ -113,45 +113,35 @@ load_and_init_algorithm() {
 # --- Rendering Helper Functions ---
 
 _build_grid_lines_1x1() {
-    grid_lines_1x1=() # Clear global array
-    local current_error_symbol="${ERROR_SYMBOL:-X}" # Algo error symbol or 'X'
-    # Check if the current algo provides TILE_NAME_TO_CHAR mapping
-    local can_map_names=0
-    [[ "$(declare -p TILE_NAME_TO_CHAR 2>/dev/null)" == "declare -A"* ]] && can_map_names=1
-
-    echo "DEBUG (render_1x1): Building..." >> "$DEBUG_LOG_FILE"
-    for ((y=0; y<ROWS; y++)); do
+    grid_lines_1x1=()
+    echo "DEBUG (_build_grid_lines_1x1): Building grid lines for 1x1 display." >> "$DEBUG_LOG_FILE"
+    for ((row=0; row<ROWS; row++)); do
         local line=""
-        for ((x=0; x<COLS; x++)); do
-            local key="$y,$x"
-            if [[ "${collapsed[$key]:-0}" == "1" ]]; then
-                local cell_content_name="${grid[$key]:-?}" # Get name/content from grid
-                local display_char="?"
-                if [[ "$cell_content_name" == "$current_error_symbol" ]]; then
-                     display_char="${TILE_NAME_TO_CHAR[$current_error_symbol]:-$current_error_symbol}" # Mapped error or raw
-                elif [[ $can_map_names -eq 1 && -v TILE_NAME_TO_CHAR[$cell_content_name] ]]; then
-                     display_char="${TILE_NAME_TO_CHAR[$cell_content_name]}" # Mapped char
-                else
-                     display_char="${cell_content_name:0:1}" # Fallback: first char
-                fi
-                 line+="$display_char"
-            else # Uncollapsed
-                if [[ $EMPTY_DISPLAY -eq 1 ]]; then line+=" "; else
-                    local opts_str="${possibilities[$key]-}" # Use possibilities array
-                    local entropy=${#opts_str}
-                    if [[ $entropy == 0 && "${collapsed[$key]:-0}" != "1" ]]; then line+="${current_error_symbol}"; else
-                    if (( entropy <= 1 )); then line+="·"; elif (( entropy <= 3 )); then line+=":"; else line+="·"; fi; fi
+        for ((col=0; col<COLS; col++)); do
+            local key="$row,$col"
+            local cell_char="${grid[$key]}"
+            local display_char="$cell_char"
+            # Handle uninitialized or empty cells
+            if [[ -z "$cell_char" ]] || [[ "$cell_char" == ' ' ]]; then
+                display_char="·"  # Placeholder for uncollapsed cells
+            else
+                # Apply colors if the cell is collapsed and colors are defined
+                local color_id="${cell_colors[$key]}"
+                if declare -F color_char &>/dev/null && [[ -n "$color_id" ]]; then
+                    if [[ "$color_id" == "1" ]]; then
+                        display_char="$(color_char "$COLOR1_FG" "$COLOR1_BG" "$cell_char")"
+                    elif [[ "$color_id" == "2" ]]; then
+                        display_char="$(color_char "$COLOR2_FG" "$COLOR2_BG" "$cell_char")"
+                    else
+                        # Default to no color if color_id is unexpected
+                        display_char="$cell_char"
+                    fi
                 fi
             fi
-
-            # Add logging when grid2-shapes.sh is active
-            if [[ "$ALGO_FILE" == "grid2-shapes.sh" && "${collapsed[$key]:-0}" == "1" ]]; then
-                echo "DEBUG (render_1x1 shapes): key=$key, name='${grid[$key]}', char_lookup='${TILE_NAME_TO_CHAR[${grid[$key]}]}', final_char='$display_char'" >> "$DEBUG_LOG_FILE"
-            fi
+            line+="$display_char"
         done
         grid_lines_1x1+=("$line")
     done
-     echo "DEBUG (render_1x1): Built ${#grid_lines_1x1[@]} lines." >> "$DEBUG_LOG_FILE"
 }
 
 _build_grid_lines_nxn() {
@@ -345,30 +335,23 @@ render_small() { # Side-by-side mode
     _build_grid_lines_1x1
     _build_text_lines
 
-    local buffer=""
     echo "DEBUG (render): Using SIDE-BY-SIDE mode." >> "$DEBUG_LOG_FILE"
-    local term_cols=$(tput cols); local desired_text_width=40; local panel_spacing=3
-    local grid_panel_width=$COLS
-    local max_text_width=$(( term_cols - grid_panel_width - panel_spacing )); [[ $max_text_width -lt 0 ]] && max_text_width=0
-    local actual_text_width=$(( desired_text_width < max_text_width ? desired_text_width : max_text_width )); [[ $actual_text_width -lt 0 ]] && actual_text_width=0
-    local max_rows=$((${#grid_lines_1x1[@]} > ${#text_lines[@]} ? ${#grid_lines_1x1[@]} : ${#text_lines[@]}))
+    local term_cols=$(tput cols)
+    local desired_text_width=40
+    local panel_spacing_str="   " # 3 spaces
+
+    # Calculate available width for the text panel
+    local max_text_width=$(( term_cols - COLS - ${#panel_spacing_str} ))
+    [[ $max_text_width -lt 0 ]] && max_text_width=0
+    local actual_text_width=$(( desired_text_width < max_text_width ? desired_text_width : max_text_width ))
+    [[ $actual_text_width -lt 0 ]] && actual_text_width=0
+
+    local max_rows=$(( ${#grid_lines_1x1[@]} > ${#text_lines[@]} ? ${#grid_lines_1x1[@]} : ${#text_lines[@]} ))
 
     for ((i=0; i<max_rows; i++)); do
-        local grid_content=""; local text_content=""
-        if ((i < ${#grid_lines_1x1[@]})); then grid_content="${grid_lines_1x1[$i]:0:$grid_panel_width}"; fi
-        if ((i < ${#text_lines[@]})); then text_content="${text_lines[$i]:0:$actual_text_width}"; fi
-
-        # Create the line string WITHOUT newline first
-        local line_str
-        line_str=$(printf "%-${grid_panel_width}s%${panel_spacing}s%s" "$grid_content" "" "$text_content")
-
-        # Append the line string and a literal newline character sequence to buffer
-        buffer+="${line_str}\\n" # Append literal backslash-n
+        local line_str="${grid_lines_1x1[$i]}${panel_spacing_str}${text_lines[$i]:0:$actual_text_width}"
+        printf "%b\n" "$line_str"
     done
-
-    # Return the assembled buffer. The main render function will print it.
-    # Use printf %b to interpret the \n sequences when captured.
-    printf "%b" "$buffer"
 }
 
 render_large() { # Full screen mode
@@ -675,3 +658,4 @@ trap 'tput cnorm; clear; exit' INT TERM EXIT
 
 # Start the engine
 main
+
