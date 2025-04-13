@@ -1,324 +1,486 @@
 #!/usr/bin/env bash
+export LC_ALL=en_US.UTF-8
+# Or potentially just: export LC_ALL=C.UTF-8
 
-# --- WFC Algorithm: Blocky Colored Shapes ---
-# Uses block elements (▀ ▄ ▌ ▐ █) and space with rules
-# to create blocky patterns, incorporating two colors.
+# --- WFC Algorithm: Blocky ASCII Shapes ---
+# Uses block characters with WFC rules
+# to create evolving geometric patterns. Compatible with standard terminals.
 
 # Define the base symbols
-export SYMBOLS=("▀" "▄" "▌" "▐" "█" " ") # Base symbols for rules/possibilities
-ERROR_SYMBOL=" "
+export SYMBOLS=("▀" "▄" "▌" "▐" "█" " ") # Block characters + Space
+export ERROR_SYMBOL="X" # Use a distinct error symbol
 
-# Define the two colors (ANSI codes)
-COLOR1=34 # Blue
-COLOR2=36 # Cyan
+# Define Tile size for the engine
+export ALGO_TILE_WIDTH=1
+export ALGO_TILE_HEIGHT=1
 
-# Export documentation pages
+# Export documentation pages (Updated for block characters)
 export PAGES=(
-    "BLOCKY COLORED SHAPES
+    "BLOCKY SHAPES
 
 Uses block characters (▀ ▄ ▌ ▐ █)
 and space with WFC rules to
-generate evolving blocky patterns.
-Uses two colors randomly.
-Contradictions appear as spaces."
+generate evolving geometric patterns.
+Contradictions appear as '$ERROR_SYMBOL'."
     "HOW IT WORKS
 
 1. Rules define how block elements
-   connect (e.g., ▀ needs █ or ▀ below).
+   connect visually (adjacency).
 2. WFC collapses cells using the
    Minimum Entropy heuristic.
-3. Color is chosen randomly upon collapse.
-4. The grid stores the colored char."
-    "RULES
+3. The grid stores the chosen character
+   with ANSI color codes."
+    "RULES (Visual Adjacency)
 
-- █ connects freely.
-- ▀ connects down to █/▀, sideways.
-- ▄ connects up to █/▄, sideways.
-- ▌ connects right to █/▌, vertically.
-- ▐ connects left to █/▐, vertically.
-- Space connects freely."
-    "SYMBOLS & COLORS
+- █ (full): Connects freely on all sides.
+- ' ' (space): Connects freely (no constraints).
+- ▀ (upper): Connects down/sides freely.
+             Connects UP only to █, ▄, ' '.
+- ▄ (lower): Connects up/sides freely.
+             Connects DOWN only to █, ▀, ' '.
+- ▌ (left): Connects right/vertical freely.
+            Connects LEFT only to █, ▐, ' '.
+- ▐ (right): Connects left/vertical freely.
+             Connects RIGHT only to █, ▌, ' '."
 
-Symbols: ${SYMBOLS[*]}
-Colors: Blue ($COLOR1), Cyan ($COLOR2)
-Errors: Shown as Space"
+    "SYMBOLS
+
+█ - Full block
+▀ - Upper half block
+▄ - Lower half block
+▌ - Left half block
+▐ - Right half block
+  - Space (Empty)"
 )
 
 # --- Rule Definition ---
 
-# Define connection rules for block symbols
+# Define connection rules for block symbols based on visual adjacency
+# Format: rules["SYMBOL_direction"]="ALLOWED_NEIGHBORS"
 init_rules() {
-    rules=() # Clear global rules
-    echo "INFO (blocky.sh): Initializing block rules..." >> "$DEBUG_LOG_FILE"
+    # Ensure rules is declared globally if not already by engine
+    declare -gA rules
+    rules=() # Clear previous rules
+    echo "INFO (blocky.sh): Initializing block character rules..." >> "$DEBUG_LOG_FILE"
 
-    # Define connections for each symbol [Symbol_Direction]="Allowed Symbols"
-    # █ (Full Block) - Connects freely to blocky things or space
-    rules["█_left"]="█ ▀ ▄ ▌ ▐  "
-    rules["█_right"]="█ ▀ ▄ ▌ ▐  "
-    rules["█_up"]="█ ▀ ▄ ▌ ▐  "
-    rules["█_down"]="█ ▀ ▄ ▌ ▐  "
+    local all_symbols="▀ ▄ ▌ ▐ █  " # All symbols including space
+
+    # █ (Full Block) - Connects to everything
+    rules["█_left"]="$all_symbols"
+    rules["█_right"]="$all_symbols"
+    rules["█_up"]="$all_symbols"
+    rules["█_down"]="$all_symbols"
+
+    # ' ' (Space) - Connects to everything (empty space doesn't constrain)
+    rules[" _left"]="$all_symbols"
+    rules[" _right"]="$all_symbols"
+    rules[" _up"]="$all_symbols"
+    rules[" _down"]="$all_symbols"
 
     # ▀ (Upper Half Block)
-    rules["▀_left"]="█ ▀ ▌ ▐  " # Can connect left/right to full, upper, or vertical halves
-    rules["▀_right"]="█ ▀ ▌ ▐  "
-    rules["▀_up"]=" "           # Connects up only to space
-    rules["▀_down"]="█ ▀  "     # Connects down to full or another upper
+    rules["▀_left"]="$all_symbols"  # Side connection free
+    rules["▀_right"]="$all_symbols" # Side connection free
+    rules["▀_up"]="█ ▄  "         # Connects UP only to things with a bottom half
+    rules["▀_down"]="$all_symbols"  # Connects DOWN freely
 
     # ▄ (Lower Half Block)
-    rules["▄_left"]="█ ▄ ▌ ▐  " # Can connect left/right to full, lower, or vertical halves
-    rules["▄_right"]="█ ▄ ▌ ▐  "
-    rules["▄_up"]="█ ▄  "       # Connects up to full or another lower
-    rules["▄_down"]=" "         # Connects down only to space
+    rules["▄_left"]="$all_symbols"  # Side connection free
+    rules["▄_right"]="$all_symbols" # Side connection free
+    rules["▄_up"]="$all_symbols"  # Connects UP freely
+    rules["▄_down"]="█ ▀  "         # Connects DOWN only to things with a top half
 
     # ▌ (Left Half Block)
-    rules["▌_left"]=" "         # Connects left only to space
-    rules["▌_right"]="█ ▌  "    # Connects right to full or another left half
-    rules["▌_up"]="█ ▌ ▀ ▄  "   # Connects up/down to full, self, or horizontal halves
-    rules["▌_down"]="█ ▌ ▀ ▄  "
+    rules["▌_left"]="█ ▐  "         # Connects LEFT only to things with a right half
+    rules["▌_right"]="$all_symbols" # Connects RIGHT freely
+    rules["▌_up"]="$all_symbols"    # Vertical connection free
+    rules["▌_down"]="$all_symbols"  # Vertical connection free
 
     # ▐ (Right Half Block)
-    rules["▐_left"]="█ ▐  "     # Connects left to full or another right half
-    rules["▐_right"]=" "        # Connects right only to space
-    rules["▐_up"]="█ ▐ ▀ ▄  "   # Connects up/down to full, self, or horizontal halves
-    rules["▐_down"]="█ ▐ ▀ ▄  "
+    rules["▐_left"]="$all_symbols"  # Connects LEFT freely
+    rules["▐_right"]="█ ▌  "        # Connects RIGHT only to things with a left half
+    rules["▐_up"]="$all_symbols"    # Vertical connection free
+    rules["▐_down"]="$all_symbols"  # Vertical connection free
 
-    #   (Space) - Connects freely
-    rules[" _left"]="█ ▀ ▄ ▌ ▐  "
-    rules[" _right"]="█ ▀ ▄ ▌ ▐  "
-    rules[" _up"]="█ ▀ ▄ ▌ ▐  "
-    rules[" _down"]="█ ▀ ▄ ▌ ▐  "
-
-    # Ensure all defined symbols have entries for all directions (even if empty)
-    local -a all_dirs=("left" "right" "up" "down")
-    for sym in "${SYMBOLS[@]}"; do
-        for dir in "${all_dirs[@]}"; do
-            local rule_key="${sym}_${dir}"
-            # If a rule isn't explicitly defined above, assume it's empty
-            [[ -v rules["$rule_key"] ]] || rules["$rule_key"]=""
-        done
-    done
-
-    echo "INFO (blocky.sh): Block rules initialized." >> "$DEBUG_LOG_FILE"
+    echo "INFO (blocky.sh): Block character rules initialized." >> "$DEBUG_LOG_FILE"
 }
 
+# --- WFC Logic Helper ---
 
-# --- WFC Logic (Adapted from Braille version) ---
-
+# Filters a string of options against another string of allowed options
+# Returns a space-separated string of valid options
 filter_options() {
-    local current_options_str="$1" allowed_options_str="$2" result=""
-    local -a current_options=($current_options_str)
-    for opt in "${current_options[@]}"; do
-        # Check base symbol compatibility
-        if [[ " $allowed_options_str " == *" $opt "* ]]; then result+="$opt "; fi
+    local string1="$1"
+    local string2="$2"
+    local common_chars=""
+    local char
+
+    # If either string is empty, intersection is empty
+    if [[ -z "$string1" || -z "$string2" ]]; then
+        echo ""
+        return
+    fi
+
+    # Iterate through chars of the first string
+    for (( i=0; i<${#string1}; i++ )); do
+        char="${string1:$i:1}"
+        # Check if the char exists in the second string
+        if [[ "$string2" == *"$char"* ]]; then
+            # Add to result if not already there (optional, prevents duplicates in output)
+             if [[ "$common_chars" != *"$char"* ]]; then
+                common_chars+="$char"
+             fi
+        fi
     done
-    echo "${result% }"
+
+    # Return the common characters, sorted for consistency (optional but good practice)
+    echo "$common_chars" | grep -o . | sort -u | tr -d '\n'
 }
 
-propagate() {
-    local y_start="$1" x_start="$2" # Coordinates that triggered propagation
-    local collapsed_base_symbol="${possibilities[$y_start,$x_start]}" # Get the base symbol
 
-    local -a queue=("$y_start,$x_start") # Start queue with the trigger cell
-    local -A processed_in_wave
-    processed_in_wave["$y_start,$x_start"]=1
+# --- WFC Propagation ---
+propagate() {
+    local y_start="$1" x_start="$2"
+    local key_start="$y_start,$x_start"
+
+    # Check if start cell is valid and collapsed
+    if [[ -z "${possibilities[$key_start]}" || "${collapsed[$key_start]}" != "1" ]]; then
+        echo "WARN (blocky.sh propagate): Start cell $key_start not valid or not collapsed. Poss: '${possibilities[$key_start]}', Coll: '${collapsed[$key_start]}'." >> "$DEBUG_LOG_FILE"
+        return
+    fi
+    local collapsed_base_symbol="${possibilities[$key_start]}" # Should be a single symbol now
+
+    local -a queue=("$key_start")
+    local -A processed_in_wave # Keep track of cells processed in this specific wave to prevent cycles within one propagation burst
+    processed_in_wave["$key_start"]=1
+
+    echo "DEBUG (blocky.sh propagate): Starting propagation from $key_start with symbol '$collapsed_base_symbol'" >> "$DEBUG_LOG_FILE"
 
     while (( ${#queue[@]} > 0 )); do
         local current_key="${queue[0]}"; queue=("${queue[@]:1}")
         local cy="${current_key%,*}" cx="${current_key#*,}"
-        # Use possibilities array for rule checking (contains base symbols)
-        local current_base_symbol="${possibilities[$current_key]}"
-        # Check if current cell possibilities became empty (contradiction from previous step)
-        if [[ -z "$current_base_symbol" ]]; then continue; fi
+        local current_possibilities="${possibilities[$current_key]}"
+
+        echo "DEBUG (blocky.sh propagate): Processing $current_key | possibilities: '$current_possibilities'" >> "$DEBUG_LOG_FILE"
+
+        if [[ -z "$current_possibilities" || "$current_possibilities" == "$ERROR_SYMBOL" ]]; then
+             echo "DEBUG (blocky.sh propagate): Skipping $current_key due to empty or error state." >> "$DEBUG_LOG_FILE"
+             continue # Skip if cell is already in error state or somehow empty
+        fi
+
+        # Determine valid neighbors based on *all* current possibilities for the current cell
+        # This allows propagation even before a cell is fully collapsed to one state
+        local combined_allowed_symbols_for_neighbor_left=""
+        local combined_allowed_symbols_for_neighbor_right=""
+        local combined_allowed_symbols_for_neighbor_up=""
+        local combined_allowed_symbols_for_neighbor_down=""
+
+        # For each possible symbol in the current cell, find what it allows in each direction
+        for (( i=0; i<${#current_possibilities}; i++ )); do
+            local sym="${current_possibilities:$i:1}"
+            combined_allowed_symbols_for_neighbor_left+="${rules[${sym}_left]-}"
+            combined_allowed_symbols_for_neighbor_right+="${rules[${sym}_right]-}"
+            combined_allowed_symbols_for_neighbor_up+="${rules[${sym}_up]-}"
+            combined_allowed_symbols_for_neighbor_down+="${rules[${sym}_down]-}"
+        done
+
+        # Deduplicate the combined allowed symbols for each direction
+        local allowed_left=$(echo "$combined_allowed_symbols_for_neighbor_left" | grep -o . | sort -u | tr -d '\n')
+        local allowed_right=$(echo "$combined_allowed_symbols_for_neighbor_right" | grep -o . | sort -u | tr -d '\n')
+        local allowed_up=$(echo "$combined_allowed_symbols_for_neighbor_up" | grep -o . | sort -u | tr -d '\n')
+        local allowed_down=$(echo "$combined_allowed_symbols_for_neighbor_down" | grep -o . | sort -u | tr -d '\n')
+
+        echo "DEBUG (blocky.sh propagate): Cell $current_key allows neighbors: L:'$allowed_left' R:'$allowed_right' U:'$allowed_up' D:'$allowed_down'" >> "$DEBUG_LOG_FILE"
+
 
         local -a directions=("left" "right" "up" "down")
         for dir in "${directions[@]}"; do
-            local ny nx opposite_dir
+            local ny nx opposite_dir allowed_symbols_for_neighbor_from_perspective
             case "$dir" in
-                left)  ny="$cy"; nx=$((cx - 1)); opposite_dir="right"; ;;
-                right) ny="$cy"; nx=$((cx + 1)); opposite_dir="left"; ;;
-                up)    ny=$((cy - 1)); nx="$cx"; opposite_dir="down"; ;;
-                down)  ny=$((cy + 1)); nx="$cx"; opposite_dir="up"; ;;
+                left)  ny="$cy"; nx=$((cx - 1)); opposite_dir="right"; allowed_symbols_for_neighbor_from_perspective="$allowed_left" ;;
+                right) ny="$cy"; nx=$((cx + 1)); opposite_dir="left";  allowed_symbols_for_neighbor_from_perspective="$allowed_right" ;;
+                up)    ny=$((cy - 1)); nx="$cx"; opposite_dir="down";  allowed_symbols_for_neighbor_from_perspective="$allowed_up" ;;
+                down)  ny=$((cy + 1)); nx="$cx"; opposite_dir="up";    allowed_symbols_for_neighbor_from_perspective="$allowed_down" ;;
             esac
             local nkey="$ny,$nx"
 
-            # Check bounds and if neighbor is already collapsed
+            # Boundary checks and check if neighbor is already collapsed
             if (( ny < 0 || ny >= ROWS || nx < 0 || nx >= COLS )) || \
-               [[ "${collapsed[$nkey]}" == "1" ]]; then continue; fi
-
-            # Calculate allowed symbols for the neighbor based on the *single* known symbol of the current cell
-            local allowed_symbols_for_neighbor=""
-            local rule_key="${current_base_symbol}_${dir}"
-            if [[ -v rules["$rule_key"] ]]; then
-                 allowed_symbols_for_neighbor="${rules[$rule_key]}"
+               [[ "${collapsed[$nkey]:-0}" == "1" ]]; then
+                 # echo "DEBUG (blocky.sh propagate): Skipping neighbor $nkey (boundary or collapsed)." >> "$DEBUG_LOG_FILE"
+                 continue
             fi
-            # No need to merge possibilities here since current cell is collapsed to one base symbol
 
-            # Filter neighbor's options
             local neighbor_current_options="${possibilities[$nkey]}"
-            local neighbor_new_options=$(filter_options "$neighbor_current_options" "$allowed_symbols_for_neighbor")
 
-            # If options changed, update and enqueue neighbor
+            # Filter the neighbor's *current* options based on what the *current* cell allows for that direction
+            local neighbor_new_options=$(filter_options "$neighbor_current_options" "$allowed_symbols_for_neighbor_from_perspective")
+
+            # --- IMPORTANT: Constraint Backwards ---
+            # Now, we must also consider the constraints imposed *by* the neighbor *onto* the current cell (using the opposite direction rules)
+            # This is crucial for ensuring consistency. Re-filter the current cell's possibilities based on what the neighbor *could* be.
+            # This step wasn't explicitly in the original logic but is standard WFC.
+
+            # Let's simplify for now and stick to the forward propagation as in the original script structure,
+            # but ensure the filtering logic is correct. The core issue was rule mismatch.
+
+
             if [[ "$neighbor_current_options" != "$neighbor_new_options" ]]; then
-                 possibilities[$nkey]="$neighbor_new_options"
-                 # DO NOT update grid[$nkey] here - it holds colored chars or placeholders
+                echo "DEBUG (blocky.sh propagate): Updating neighbor $nkey. Old: '$neighbor_current_options', Allowed: '$allowed_symbols_for_neighbor_from_perspective', New: '$neighbor_new_options'" >> "$DEBUG_LOG_FILE"
 
-                 if [[ -z "$neighbor_new_options" ]]; then
-                     # Contradiction: Set grid to space, clear possibilities, mark collapsed
-                     grid[$nkey]="$ERROR_SYMBOL"; possibilities[$nkey]=""; collapsed[$nkey]=1 # Already uses ERROR_SYMBOL
-                     echo "WARN (blocky.sh-propagate): Contradiction at $nkey, setting to space." >> "$DEBUG_LOG_FILE"
-                 elif [[ ! -v processed_in_wave["$nkey"] ]]; then
-                     # Neighbor possibilities reduced, add to queue IF IT HASN'T ALREADY BEEN
-                     # This requires propagating from the neighbor using its reduced possibilities
-                     # For simplicity here, we just enqueue it - might lead to redundant checks
-                     # A more refined approach would check if the possibilities derived *from this neighbor*
-                     # have changed compared to previously.
-                     queue+=("$nkey"); processed_in_wave["$nkey"]=1
-                 fi
+                possibilities[$nkey]="$neighbor_new_options"
+
+                if [[ -z "$neighbor_new_options" ]]; then
+                    # Contradiction detected!
+                    grid[$nkey]="$ERROR_SYMBOL"
+                    possibilities[$nkey]="$ERROR_SYMBOL" # Mark possibilities as error state
+                    collapsed[$nkey]=1 # Mark as collapsed (to error state)
+                    cell_colors[$nkey]="" # No color for error
+                    echo "WARN (blocky.sh propagate): Contradiction at $nkey propagating from $current_key. Setting to '$ERROR_SYMBOL'." >> "$DEBUG_LOG_FILE"
+                    # Do not add to queue, contradiction stops propagation path here
+                elif [[ ! -v processed_in_wave["$nkey"] ]]; then
+                    # If possibilities changed and not yet processed in this wave, add to queue
+                    queue+=("$nkey")
+                    processed_in_wave["$nkey"]=1
+                     echo "DEBUG (blocky.sh propagate): Adding $nkey to queue." >> "$DEBUG_LOG_FILE"
+                fi
+            # else
+                 # echo "DEBUG (blocky.sh propagate): No change for neighbor $nkey ('$neighbor_current_options')." >> "$DEBUG_LOG_FILE"
             fi
-        done # directions
-    done # queue
+        done
+    done
+     echo "DEBUG (blocky.sh propagate): Propagation finished for wave starting at $key_start." >> "$DEBUG_LOG_FILE"
 }
 
 
-# --- Engine-Called Functions ---
+# --- Color Management ---
+declare -A cell_colors # Store color identifiers (e.g., "1", "2")
 
-# Initialize the grid state
+# Color Definitions (Ensure these match engine expectations or are self-contained)
+COLOR1_FG="ffffff" # White foreground
+COLOR1_BG="0000aa" # Dark blue background
+COLOR2_FG="ffffff" # White foreground
+COLOR2_BG="00aaaa" # Cyan background
+
+# Helper to apply ANSI colors
+color_char() {
+    local fg="$1" bg="$2" char="$3"
+    # Check if fg, bg are 6-digit hex
+    if [[ "$fg" =~ ^[0-9a-fA-F]{6}$ && "$bg" =~ ^[0-9a-fA-F]{6}$ ]]; then
+        printf "\033[38;2;%d;%d;%dm" 0x${fg:0:2} 0x${fg:2:2} 0x${fg:4:2} # Set FG color
+        printf "\033[48;2;%d;%d;%dm" 0x${bg:0:2} 0x${bg:2:2} 0x${bg:4:2} # Set BG color
+        printf "%s" "$char"                                               # Print character
+        printf "\033[0m"                                                  # Reset colors
+    else
+        # Fallback if color codes are invalid
+        printf "%s" "$char"
+    fi
+}
+
+# --- Grid Initialization ---
 init_grid() {
-    grid=() possibilities=() collapsed=() # Clear globals
-    local all_symbols="${SYMBOLS[*]}"
+    # Ensure global scope for engine compatibility
+    declare -gA grid possibilities collapsed cell_colors
+    grid=() possibilities=() collapsed=() cell_colors=()
+
+    local all_symbols_str=""
+    for sym in "${SYMBOLS[@]}"; do all_symbols_str+="$sym"; done
+    # Remove potential duplicates from SYMBOLS array if any
+    all_symbols_str=$(echo "$all_symbols_str" | grep -o . | sort -u | tr -d '\n')
+
+
     echo "INFO (blocky.sh): Initializing grid (${ROWS}x${COLS}) for blocky shapes." >> "$DEBUG_LOG_FILE"
+    echo "INFO (blocky.sh): Initial possibilities string: '$all_symbols_str'" >> "$DEBUG_LOG_FILE"
+
 
     for ((y=0; y<ROWS; y++)); do
         for ((x=0; x<COLS; x++)); do
             local key="$y,$x"
-            possibilities[$key]="$all_symbols" # Store base symbols
-            grid[$key]="" # Grid stores final colored char or placeholder
+            possibilities[$key]="$all_symbols_str"
+            grid[$key]=" " # Initialize grid with space
             collapsed[$key]=0
+            cell_colors[$key]=""
         done
     done
 
-    # Optional: Seed the grid (e.g., center)
-    # local seed_y=$((ROWS / 2)) seed_x=$((COLS / 2)) key="$seed_y,$seed_x"
-    # local base_symbol="█" color_code="$COLOR1"
-    # grid[$key]="$(printf '\033[%sm%s\033[0m' "$color_code" "$base_symbol")"
-    # possibilities[$key]="$base_symbol"
-    # collapsed[$key]=1
-    # propagate "$seed_y" "$seed_x"
+    # Seed the grid with a colored block in the center
+    local seed_y=$((ROWS / 2)) seed_x=$((COLS / 2))
+    local key="$seed_y,$seed_x"
+    local base_symbol="█" # Start with a full block
+
+    if [[ "$all_symbols_str" == *"$base_symbol"* ]]; then
+        possibilities[$key]="$base_symbol"
+        collapsed[$key]=1
+        cell_colors[$key]="1" # Use identifier '1' for COLOR1
+        grid[$key]="$base_symbol"
+
+        echo "INFO (blocky.sh): Seeding grid at $key with '$base_symbol' (Color 1)." >> "$DEBUG_LOG_FILE"
+        propagate "$seed_y" "$seed_x"
+    else
+        echo "ERROR (blocky.sh): Seed symbol '$base_symbol' not found in initial possibilities '$all_symbols_str'. Cannot seed." >> "$DEBUG_LOG_FILE"
+        STATUS_MESSAGE="Blocky Error: Invalid seed symbol"
+        return 1
+    fi
+
 
     STATUS_MESSAGE="Blocky Shapes Initialized"
-    echo "INFO (blocky.sh): Grid initialized." >> "$DEBUG_LOG_FILE"
+    echo "INFO (blocky.sh): Grid initialized and seeded." >> "$DEBUG_LOG_FILE"
 }
 
-# Helper to extract ANSI color code (digits) from a grid value string
-get_color_from_grid_value() {
-    local grid_val="$1"
-    # Regex to find \e[<digits>m at the start
-    if [[ "$grid_val" =~ ^$'\x1B'\['([0-9]+)'m ]]; then
-        echo "${BASH_REMATCH[1]}"
-    else
-        echo "" # Return empty if no color code found
-    fi
-}
-
-# Core WFC update step
+# --- Core WFC Update Step ---
 update_algorithm() {
-    # Find cell with lowest entropy (>0) based on possibilities
-    local min_entropy=9999 candidates=() all_collapsed=1 potential_contradiction=0
+    local min_entropy=9999 candidates=() all_collapsed=1 potential_contradiction=0 lowest_entropy_key=""
+    local entropy # Reuse variable
+
+    echo "DEBUG (blocky.sh update): Searching for minimum entropy cell..." >> "$DEBUG_LOG_FILE"
+
+    # Find cell(s) with the minimum number of possibilities (entropy)
     for key in "${!possibilities[@]}"; do
-        if [[ "${collapsed[$key]}" == "0" ]]; then
-            all_collapsed=0
-            local opts_str="${possibilities[$key]}"
-            if [[ -z "$opts_str" ]]; then
-                potential_contradiction=1; if [[ "${grid[$key]}" != "$ERROR_SYMBOL" ]]; then grid[$key]="$ERROR_SYMBOL"; collapsed[$key]=1; fi; continue
+        if [[ "${collapsed[$key]:-0}" == "0" ]]; then
+            all_collapsed=0 # Found at least one uncollapsed cell
+            local opts_str="${possibilities[$key]-}"
+
+            # Calculate entropy (number of possible symbols)
+             entropy=${#opts_str}
+             echo "TRACE (blocky.sh update): Cell $key | Options: '$opts_str' | Entropy: $entropy" >> "$DEBUG_LOG_FILE"
+
+
+            if [[ -z "$opts_str" || "$opts_str" == "$ERROR_SYMBOL" ]]; then
+                # This cell already reached a contradiction in a previous step
+                # We mark it as collapsed to avoid re-processing, but log it.
+                if [[ "${collapsed[$key]:-0}" == "0" ]]; then # Only update if not already marked collapsed
+                    echo "WARN (blocky.sh update): Found pre-existing contradiction at $key during entropy scan. Marking collapsed." >> "$DEBUG_LOG_FILE"
+                    grid[$key]="$ERROR_SYMBOL"
+                    possibilities[$key]="$ERROR_SYMBOL"
+                    collapsed[$key]=1
+                    cell_colors[$key]=""
+                fi
+                continue # Skip this cell for candidate selection
             fi
-            local opts=($opts_str) entropy=${#opts[@]}
+
+
             if (( entropy > 0 )); then
                 if (( entropy < min_entropy )); then
-                    min_entropy=$entropy; candidates=("$key")
-                elif (( entropy == min_entropy )); then candidates+=("$key"); fi
-            elif (( entropy == 0 )); then # Should be caught by -z
-                 potential_contradiction=1; if [[ "${grid[$key]}" != "$ERROR_SYMBOL" ]]; then grid[$key]="$ERROR_SYMBOL"; collapsed[$key]=1; fi
+                    min_entropy=$entropy
+                    candidates=("$key") # Start new list of candidates
+                    lowest_entropy_key=$key # For logging
+                     echo "DEBUG (blocky.sh update): New min entropy $entropy found at $key." >> "$DEBUG_LOG_FILE"
+                elif (( entropy == min_entropy )); then
+                    candidates+=("$key") # Add to existing list
+                    # echo "DEBUG (blocky.sh update): Adding candidate $key with entropy $entropy." >> "$DEBUG_LOG_FILE"
+                fi
+            # No need for explicit entropy == 0 check here, handled by the -z check above
             fi
         fi
     done
 
-    if [[ $all_collapsed -eq 1 ]]; then STATUS_MESSAGE="Blocky Shapes Complete!"; return 1; fi
+    if [[ $all_collapsed -eq 1 ]]; then
+        STATUS_MESSAGE="Blocky Shapes Complete!"
+        echo "INFO (blocky.sh update): All cells collapsed." >> "$DEBUG_LOG_FILE"
+        return 1 # Indicate completion
+    fi
+
     if (( ${#candidates[@]} == 0 )); then
-         if [[ $potential_contradiction -eq 1 ]]; then STATUS_MESSAGE="Blocky Shapes Error: Contradiction"
-         else STATUS_MESSAGE="Blocky Shapes Error: No candidates"; fi
-         return 1
+         # This should ideally not happen if there are uncollapsed cells with >0 entropy
+         # If it does, it might mean all remaining uncollapsed cells hit a contradiction simultaneously
+         STATUS_MESSAGE="Blocky Shapes Error: No valid candidates found!"
+         echo "ERROR (blocky.sh update): No candidates found, but not all cells are collapsed. Possible widespread contradiction." >> "$DEBUG_LOG_FILE"
+         return 1 # Indicate error/stalemate
     fi
 
-    # Collapse a random candidate
-    local pick="${candidates[$((RANDOM % ${#candidates[@]}))]}"
+    # Select a candidate cell randomly from the list of minimum entropy cells
+    local pick_index=$(( RANDOM % ${#candidates[@]} ))
+    local pick="${candidates[$pick_index]}"
     local y="${pick%,*}" x="${pick#*,}"
-    local options=(${possibilities[$pick]}) # Base symbol options
-    if (( ${#options[@]} == 0 )); then # Safety check
-        STATUS_MESSAGE="Blocky Shapes Error: Candidate $pick empty"; grid[$pick]="$ERROR_SYMBOL"; collapsed[$pick]=1; return 1
-    fi
-    local base_symbol="${options[$((RANDOM % ${#options[@]}))]}" # Choose base symbol
+    local options_str="${possibilities[$pick]}"
 
-    # --- Determine Preferred Color based on Neighbors ---
-    local color_code # The final color code to use
-    if [[ "$base_symbol" == " " ]]; then
-        # Don't assign color logic to spaces
-        color_code="" # Will result in final_symbol being just " "
-    else
-        local color1_neighbors=0
-        local color2_neighbors=0
-        local -a directions=("left" "right" "up" "down")
-        for dir in "${directions[@]}"; do
+    echo "DEBUG (blocky.sh update): Found ${#candidates[@]} candidates with entropy $min_entropy. Picked $pick ('$options_str')." >> "$DEBUG_LOG_FILE"
+
+
+    # This check should be redundant now due to earlier filtering, but safe to keep
+    if [[ -z "$options_str" || "$options_str" == "$ERROR_SYMBOL" ]]; then
+        STATUS_MESSAGE="Blocky Error: Picked candidate $pick has no valid options!"
+        grid[$pick]="$ERROR_SYMBOL"
+        possibilities[$pick]="$ERROR_SYMBOL"
+        collapsed[$pick]=1
+        cell_colors[$pick]=""
+        echo "ERROR (blocky.sh update): Selected candidate $pick '$options_str' is empty or error symbol. Setting to '$ERROR_SYMBOL'." >> "$DEBUG_LOG_FILE"
+        # Don't propagate from an error state
+        return 0 # Continue algorithm, maybe other parts can resolve
+    fi
+
+    # Choose one symbol randomly from the possibilities of the selected cell
+    local choice_index=$(( RANDOM % ${#options_str} ))
+    local base_symbol="${options_str:$choice_index:1}"
+
+    echo "DEBUG (blocky.sh update): Collapsing $pick to '$base_symbol'" >> "$DEBUG_LOG_FILE"
+
+
+    # Determine color based on neighbors (only if not collapsing to space)
+    local color_id="" # Use "" for no color (space or error)
+    if [[ "$base_symbol" != " " ]]; then
+        local color1_count=0 color2_count=0
+        local neighbor_dirs=("left" "right" "up" "down")
+        for dir in "${neighbor_dirs[@]}"; do
             local ny nx
             case "$dir" in
-                left)  ny="$y"; nx=$((x - 1)); ;;
-                right) ny="$y"; nx=$((x + 1)); ;;
-                up)    ny=$((y - 1)); nx="$x"; ;;
-                down)  ny=$((y + 1)); nx="$x"; ;;
+                left)  ny="$y"; nx=$((x - 1)) ;; right) ny="$y"; nx=$((x + 1)) ;;
+                up)    ny=$((y - 1)); nx="$x" ;; down)  ny=$((y + 1)); nx="$x" ;;
             esac
             local nkey="$ny,$nx"
 
-            # Check bounds and if neighbor is collapsed
+            # Check bounds and if neighbor IS collapsed and HAS a color
             if (( ny >= 0 && ny < ROWS && nx >= 0 && nx < COLS )) && \
-               [[ "${collapsed[$nkey]}" == "1" ]]; then
-                local neighbor_grid_value="${grid[$nkey]}"
-                local neighbor_color=$(get_color_from_grid_value "$neighbor_grid_value")
-                if [[ "$neighbor_color" == "$COLOR1" ]]; then
-                    ((color1_neighbors++))
-                elif [[ "$neighbor_color" == "$COLOR2" ]]; then
-                    ((color2_neighbors++))
+               [[ "${collapsed[$nkey]:-0}" == "1" ]] && \
+               [[ -n "${cell_colors[$nkey]}" ]]; then
+                local neighbor_color_id="${cell_colors[$nkey]}"
+                if [[ "$neighbor_color_id" == "1" ]]; then
+                    ((color1_count++))
+                elif [[ "$neighbor_color_id" == "2" ]]; then
+                    ((color2_count++))
                 fi
             fi
         done
 
-        # Choose dominant color or random if tied/no neighbors
-        if (( color1_neighbors > color2_neighbors )); then
-            color_code=$COLOR1
-        elif (( color2_neighbors > color1_neighbors )); then
-            color_code=$COLOR2
-        else
-            # Tie or no colored neighbors, choose randomly
-            color_code=$(( RANDOM % 2 == 0 ? COLOR1 : COLOR2 ))
+        # Choose color: prefer dominant neighbor color, else random
+        if (( color1_count > color2_count )); then
+            color_id="1"
+        elif (( color2_count > color1_count )); then
+            color_id="2"
+        elif (( color1_count == 0 && color2_count == 0 )); then
+             # No colored neighbors, pick randomly
+             color_id=$(( RANDOM % 2 + 1 ))
+        else # Equal number of neighbors of each color
+             color_id=$(( RANDOM % 2 + 1 ))
         fi
-    fi
-    # --- End Color Determination ---
-
-    # Construct final colored string for the grid array
-    local final_symbol
-    if [[ -z "$color_code" ]]; then # Handles the space case
-        final_symbol=" "
+        echo "DEBUG (blocky.sh update): Color choice for $pick ('$base_symbol'): C1 neighbors=$color1_count, C2 neighbors=$color2_count -> Chosen Color ID: $color_id" >> "$DEBUG_LOG_FILE"
     else
-        final_symbol=$(printf '\033[%sm%s\033[0m' "$color_code" "$base_symbol")
+         echo "DEBUG (blocky.sh update): Collapsing $pick to space, no color needed." >> "$DEBUG_LOG_FILE"
     fi
 
-    # Update global state
-    grid[$pick]="$final_symbol"        # Store colored char in grid
-    possibilities[$pick]="$base_symbol" # Store base char in possibilities
-    collapsed[$pick]=1
+    # --- Update Grid and State ---
+    possibilities[$pick]="$base_symbol" # Set possibilities to the chosen symbol
+    collapsed[$pick]=1                # Mark cell as collapsed
+    cell_colors[$pick]="$color_id"     # Store the chosen color ID (or "" for space)
 
-    # Propagate constraints using the base symbol
+    # === CHANGE HERE: Store plain symbol in grid ===
+    grid[$pick]="$base_symbol" # Store the chosen base symbol (or space)
+    # ===============================================
+
+    # The old logic using color_char is removed.
+    # Rendering with color now depends on the engine interpreting grid + cell_colors.
+
+    # Propagate the consequences of this collapse
     propagate "$y" "$x"
 
-    local collapsed_count=0; for k in "${!collapsed[@]}"; do [[ "${collapsed[$k]}" == "1" ]] && ((collapsed_count++)); done
-    STATUS_MESSAGE="Blocky: Collapsed $pick ('$base_symbol') | $collapsed_count/$((ROWS*COLS))"
-    return 0 # Success
+    # Update Status Message
+    local collapsed_count=0
+    for k in "${!collapsed[@]}"; do [[ "${collapsed[$k]}" == "1" ]] && ((collapsed_count++)); done
+    local progress_percent=$(( (collapsed_count * 100) / (ROWS * COLS) ))
+    STATUS_MESSAGE="Blocky: Collapsed '$base_symbol' @$pick (Clr $color_id) | $collapsed_count/$((ROWS*COLS)) ($progress_percent%)"
+
+    return 0 # Indicate successful step
 }
+
+# Note: render_cell and draw_cell are removed as the engine handles rendering.
+# Note: set_block, log_contradiction, handle_contradiction, get_neighbors removed as
+#       contradiction handling is integrated into propagate/update_algorithm.

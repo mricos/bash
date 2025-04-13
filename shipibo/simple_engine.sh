@@ -146,45 +146,112 @@ _build_grid_lines_1x1() {
 _build_grid_lines_nxn() {
     grid_lines_nxn=() # Clear global array
     local current_error_symbol="${ERROR_SYMBOL:-?}"
-    local tile_w=${ALGO_TILE_WIDTH:-1} # Use globals set by render dispatcher
+    local tile_w=${ALGO_TILE_WIDTH:-1}
     local tile_h=${ALGO_TILE_HEIGHT:-1}
 
     # Check if TILE data is valid
     if ! declare -p TILE_TOPS &>/dev/null || ! declare -p TILE_BOTS &>/dev/null \
            || [[ "$(declare -p TILE_TOPS)" != "declare -A"* ]] || [[ "$(declare -p TILE_BOTS)" != "declare -A"* ]]; then
-        echo "ERROR (render_nxn): TILE_TOPS/BOTS arrays not valid." >> "$DEBUG_LOG_FILE"
-        grid_lines_nxn+=("ERROR: Missing TILE data") # Add error line
+        echo "ERROR (render_nxn): TILE_TOPS/BOTS arrays not valid or not associative arrays." >> "$DEBUG_LOG_FILE"
+        grid_lines_nxn+=("ERROR: Missing or invalid TILE data for NxN rendering") # Add specific error line
         return 1 # Indicate failure
     fi
+    # Check if TILE_TOPS is empty - indicates an issue even if declared
+    if [[ ${#TILE_TOPS[@]} -eq 0 ]]; then
+         echo "ERROR (render_nxn): TILE_TOPS array is declared but empty." >> "$DEBUG_LOG_FILE"
+         grid_lines_nxn+=("ERROR: TILE_TOPS array is empty")
+         return 1
+    fi
 
-    echo "DEBUG (render_nxn): Building ${tile_w}x${tile_h} lines..." >> "$DEBUG_LOG_FILE"
-    local sample_glyph_width=7; if [[ -v TILE_TOPS[STRAIGHT_H] ]]; then sample_glyph_width=${#TILE_TOPS[STRAIGHT_H]}; [[ $sample_glyph_width -lt 1 ]] && sample_glyph_width=1; fi
-    local placeholder_error="!ERROR!"; local placeholder_unk="??UNK??"; local placeholder_uncol="......."
-    printf -v placeholder_error "%-*.*s" $sample_glyph_width $sample_glyph_width "$placeholder_error"
-    printf -v placeholder_unk "%-*.*s" $sample_glyph_width $sample_glyph_width "$placeholder_unk"
-    printf -v placeholder_uncol "%-*.*s" $sample_glyph_width $sample_glyph_width "$placeholder_uncol"
+    # Determine sample glyph width more robustly
+    local sample_glyph_width=0
+    if [[ -v TILE_TOPS[STRAIGHT_H] ]]; then
+        sample_glyph_width=${#TILE_TOPS[STRAIGHT_H]}
+    elif [[ ${#TILE_TOPS[@]} -gt 0 ]]; then
+        local first_key
+        for first_key in "${!TILE_TOPS[@]}"; do break; done
+        sample_glyph_width=${#TILE_TOPS[$first_key]}
+    fi
+    # Fallback if width couldn't be determined
+    [[ $sample_glyph_width -le 0 ]] && sample_glyph_width=7
 
+    echo "DEBUG (render_nxn): Building ${tile_w}x${tile_h} lines (using sample_glyph_width=${sample_glyph_width})..." >> "$DEBUG_LOG_FILE"
+
+    # Define placeholders based on the determined width
+    local placeholder_error; printf -v placeholder_error "%-${sample_glyph_width}.${sample_glyph_width}s" " ╳╳╳  " # Use a less jarring error symbol
+    local placeholder_unk; printf -v placeholder_unk "%-${sample_glyph_width}.${sample_glyph_width}s" "·?·?·"
+    local placeholder_uncol; printf -v placeholder_uncol "%-${sample_glyph_width}.${sample_glyph_width}s" "·······"
+
+    # Find the area with collapsed cells to determine the "active" region
+    local min_x=$COLS local max_x=0 local min_y=$ROWS local max_y=0
+    local has_collapsed=0
     for ((y=0; y<ROWS; y++)); do
+        for ((x=0; x<COLS; x++)); do
+            local key="$y,$x"
+            if [[ "${collapsed[$key]:-0}" == "1" ]]; then
+                has_collapsed=1
+                (( y < min_y )) && min_y=$y
+                (( y > max_y )) && max_y=$y
+                (( x < min_x )) && min_x=$x
+                (( x > max_x )) && max_x=$x
+            fi
+        done
+    done
+    
+    # Ensure we have some margin around the active area
+    if [[ $has_collapsed -eq 1 ]]; then
+        (( min_y > 2 )) && min_y=$((min_y - 2))
+        (( max_y < ROWS-3 )) && max_y=$((max_y + 2))
+        (( min_x > 2 )) && min_x=$((min_x - 2))
+        (( max_x < COLS-3 )) && max_x=$((max_x + 2))
+    else
+        # If nothing collapsed, just show the center area
+        min_y=$((ROWS/2 - 5)); max_y=$((ROWS/2 + 5))
+        min_x=$((COLS/2 - 10)); max_x=$((COLS/2 + 10))
+    fi
+    # Ensure bounds are valid
+    [[ $min_y -lt 0 ]] && min_y=0; [[ $max_y -ge $ROWS ]] && max_y=$((ROWS-1))
+    [[ $min_x -lt 0 ]] && min_x=0; [[ $max_x -ge $COLS ]] && max_x=$((COLS-1))
+
+    echo "DEBUG (render_nxn): Active region: (${min_x},${min_y}) to (${max_x},${max_y})" >> "$DEBUG_LOG_FILE"
+    
+    # Only build the active region
+    for ((y=min_y; y<=max_y; y++)); do
         for ((ty=0; ty<tile_h; ty++)); do
             local current_line=""
-            for ((x=0; x<COLS; x++)); do
+            for ((x=min_x; x<=max_x; x++)); do
                 local key="$y,$x"; local glyph_segment=""; local collapsed_status="${collapsed[$key]:-0}"
                 if [[ "$collapsed_status" == "1" ]]; then
                     local tile_name="${grid[$key]:-UNK}" # Get name from grid
                     if [[ "$tile_name" == "$current_error_symbol" ]]; then glyph_segment="$placeholder_error"
-                    elif [[ "$tile_name" == "UNK" ]] || ! [[ -v TILE_TOPS[$tile_name] ]]; then glyph_segment="$placeholder_unk"
-                    else
-                        if (( ty == 0 )); then glyph_segment="${TILE_TOPS[$tile_name]}"
-                        elif (( ty == 1 && tile_h >= 2 )); then glyph_segment="${TILE_BOTS[$tile_name]}"
-                        else glyph_segment="$placeholder_unk"; fi
-                        [[ -z "$glyph_segment" ]] && glyph_segment="$placeholder_unk"
+                    elif [[ "$tile_name" == "UNK" ]]; then glyph_segment="$placeholder_unk" # Explicit UNK check
+                    elif (( ty == 0 )); then # Top part of the tile
+                        glyph_segment="${TILE_TOPS[$tile_name]:-$placeholder_unk}" # Use placeholder if key missing
+                    elif (( ty == 1 && tile_h >= 2 )); then # Bottom part
+                        glyph_segment="${TILE_BOTS[$tile_name]:-$placeholder_unk}" # Use placeholder if key missing
+                    else # Fallback for unexpected tile height or ty value
+                        glyph_segment="$placeholder_unk"
                     fi
-                else glyph_segment="$placeholder_uncol"; fi
-                current_line+="${glyph_segment} "
-            done; grid_lines_nxn+=("${current_line% }")
+                    # Ensure the segment has the correct width if found
+                    if [[ "$glyph_segment" != "$placeholder_unk" && "$glyph_segment" != "$placeholder_error" ]]; then
+                         printf -v glyph_segment "%-${sample_glyph_width}.${sample_glyph_width}s" "$glyph_segment"
+                    fi
+                else
+                    glyph_segment="$placeholder_uncol" # Uncollapsed uses its own placeholder
+                fi
+                
+                # Only add a separator if this is not the last column
+                if ((x < max_x)); then
+                    current_line+="${glyph_segment} " # Add space after non-last tiles
+                else
+                    current_line+="${glyph_segment}" # No space after last tile
+                fi
+            done
+            grid_lines_nxn+=("$current_line") # Add the line
         done
     done
-    echo "DEBUG (render_nxn): Built ${#grid_lines_nxn[@]} lines." >> "$DEBUG_LOG_FILE"
+    
+    echo "DEBUG (render_nxn): Built ${#grid_lines_nxn[@]} lines for active region" >> "$DEBUG_LOG_FILE"
     return 0 # Indicate success
 }
 
@@ -235,62 +302,117 @@ render_small() { # Side-by-side mode
 render_large() { # Full screen mode
     local tile_w=${ALGO_TILE_WIDTH:-1}
     local tile_h=${ALGO_TILE_HEIGHT:-1}
-    local build_nxn_success=0
-    local buffer="" # Buffer for the complete output
+    local buffer=""
+    local use_nxn=0
 
-    echo "DEBUG (render): Using FULL SCREEN mode." >> "$DEBUG_LOG_FILE"
-    local -n current_grid_lines_ref=grid_lines_1x1 # Default ref
+    echo "DEBUG (render_large): Using FULL SCREEN mode. Algo Tile Size: ${tile_w}x${tile_h}" >> "$DEBUG_LOG_FILE"
     local grid_display_height=$ROWS
-    local grid_char_width=$COLS # Default width
+    local grid_char_width=$COLS
 
+    # Determine mode and build lines
     if (( tile_w > 1 || tile_h > 1 )); then
         if _build_grid_lines_nxn; then
-             echo "DEBUG (render): Full screen - Build NxN SUCCESS. Using NxN lines." >> "$DEBUG_LOG_FILE"
-             current_grid_lines_ref=grid_lines_nxn # Switch ref to NxN lines
-             grid_display_height=$(( ROWS * tile_h ))
-             # Calculate NxN width more accurately
-             if [[ ${#current_grid_lines_ref[@]} -gt 0 ]]; then
-                 # Use the length of the first line as representative width
-                 grid_char_width=${#current_grid_lines_ref[0]}
-             else
-                 # Fallback if array is empty (shouldn't happen on success)
-                 grid_char_width=$(( COLS * tile_w )) # Estimate
-             fi
-             build_nxn_success=1
+            echo "DEBUG (render_large): NxN Build SUCCESS. Will use grid_lines_nxn directly." >> "$DEBUG_LOG_FILE"
+            
+            # Get the dimensions from the actual array
+            if [[ ${#grid_lines_nxn[@]} -gt 0 ]]; then
+                grid_display_height=${#grid_lines_nxn[@]}
+                # Find the max line width from the actual lines
+                grid_char_width=0
+                for ((i=0; i<${#grid_lines_nxn[@]}; i++)); do
+                    local line_len=${#grid_lines_nxn[$i]}
+                    (( line_len > grid_char_width )) && grid_char_width=$line_len
+                done
+            else
+                grid_display_height=$(( ROWS * tile_h ))
+                local estimated_tile_width=8 # 7 for glyph + 1 for space
+                grid_char_width=$(( (COLS * estimated_tile_width) - 1 )) # subtract 1 for last column no space
+            fi
+            
+            echo "DEBUG (render_large): Actual NxN grid dimensions: ${grid_char_width}w x ${grid_display_height}h" >> "$DEBUG_LOG_FILE"
+            use_nxn=1
         else
-             echo "WARN (render): Full screen - Build NxN FAILED. Falling back to 1x1." >> "$DEBUG_LOG_FILE"
-             _build_grid_lines_1x1 # Ensure 1x1 is built
-             current_grid_lines_ref=grid_lines_1x1 # Keep ref as 1x1
+             echo "WARN (render_large): NxN Build FAILED. Falling back to 1x1." >> "$DEBUG_LOG_FILE"
+             _build_grid_lines_1x1
              grid_display_height=$ROWS
              grid_char_width=$COLS
+             use_nxn=0
         fi
     else
-        # If 1x1 algo, build and use 1x1 lines
         _build_grid_lines_1x1
-        echo "DEBUG (render): Full screen - Using 1x1 lines." >> "$DEBUG_LOG_FILE"
-        current_grid_lines_ref=grid_lines_1x1
+        echo "DEBUG (render_large): Using 1x1 lines for full screen." >> "$DEBUG_LOG_FILE"
         grid_display_height=$ROWS
         grid_char_width=$COLS
+        use_nxn=0
     fi
 
-    # Get current terminal dimensions *just before* calculating offsets
-    local term_rows=$(tput lines); local term_cols=$(tput cols)
-    local row_offset=$(( (term_rows - grid_display_height) / 2 )); local col_offset=$(( (term_cols - grid_char_width) / 2 ))
-    [[ $row_offset -lt 0 ]] && row_offset=0; [[ $col_offset -lt 0 ]] && col_offset=0
+    # Get current terminal dimensions
+    local term_rows=$(tput lines)
+    local term_cols=$(tput cols)
+    
+    # Prevent grid_char_width from exceeding terminal width
+    if [[ $grid_char_width -gt $term_cols ]]; then
+        echo "DEBUG (render_large): Truncating grid width to fit terminal (${grid_char_width} -> ${term_cols})" >> "$DEBUG_LOG_FILE"
+        grid_char_width=$term_cols
+    fi
+    
+    local row_offset=$(( (term_rows - grid_display_height) / 2 ))
+    local col_offset=$(( (term_cols - grid_char_width) / 2 ))
+    [[ $row_offset -lt 0 ]] && row_offset=0
+    [[ $col_offset -lt 0 ]] && col_offset=0
+    
+    echo "DEBUG (render_large): Centering calculation: Terminal=${term_cols}x${term_rows}, Grid=${grid_char_width}x${grid_display_height}, Offset=${col_offset}x${row_offset}" >> "$DEBUG_LOG_FILE"
 
-    # Add cursor positioning command to buffer first
-    buffer+=$(printf "\033[$((row_offset + 1));${col_offset}H")
+    # Build the output buffer - START at offset position
+    buffer+=$(printf "\033[$((row_offset + 1));$((col_offset + 1))H")
 
-    for ((i=0; i<${#current_grid_lines_ref[@]}; i++)); do
-        local line_content="${current_grid_lines_ref[$i]}"
-        # Append line content and cursor move command for the *next* line
-        # Ensure line_content doesn't contain unexpected newlines itself
-        line_content=${line_content//$'\n'/ } # Replace potential newlines in grid data with spaces
-        buffer+=$(printf "%s\033[$((row_offset + i + 2));${col_offset}H" "$line_content")
-    done
+    # Render lines based on which array type we're using
+    if [[ $use_nxn -eq 1 ]]; then
+        # --- NxN Array Rendering ---
+        echo "DEBUG (render_large): Rendering NxN grid with ${#grid_lines_nxn[@]} lines" >> "$DEBUG_LOG_FILE"
+        if [[ ${#grid_lines_nxn[@]} -eq 0 ]]; then
+            buffer+=$(printf "%s" "Error: NxN grid lines array is empty")
+        else
+            # Define a max character limit per line to prevent wrapping
+            local max_line_width=$(( term_cols - col_offset - 1 ))
+            [[ $max_line_width -gt $grid_char_width ]] && max_line_width=$grid_char_width
+            
+            for ((i=0; i<${#grid_lines_nxn[@]}; i++)); do
+                # DIRECTLY access the NxN array
+                local line_content="${grid_lines_nxn[$i]}"
+                
+                # Sanitize newlines
+                line_content=${line_content//$'\n'/ }
+                
+                # Truncate to max width if needed
+                if [[ ${#line_content} -gt $max_line_width ]]; then
+                    line_content="${line_content:0:$max_line_width}"
+                fi
+                
+                # Add the line content and position for next line
+                buffer+=$(printf "%s\033[$((row_offset + i + 2));$((col_offset + 1))H" "$line_content")
+            done
+        fi
+    else
+        # --- 1x1 Array Rendering ---
+        echo "DEBUG (render_large): Rendering 1x1 grid with ${#grid_lines_1x1[@]} lines" >> "$DEBUG_LOG_FILE"
+        if [[ ${#grid_lines_1x1[@]} -eq 0 ]]; then
+            buffer+=$(printf "%s" "Error: 1x1 grid lines array is empty")
+        else
+            for ((i=0; i<${#grid_lines_1x1[@]}; i++)); do
+                # DIRECTLY access the 1x1 array, no nameref
+                local line_content="${grid_lines_1x1[$i]}"
+                # Sanitize and use without padding
+                line_content=${line_content//$'\n'/ }
+                
+                # Add the line content and position for next line
+                buffer+=$(printf "%s\033[$((row_offset + i + 2));$((col_offset + 1))H" "$line_content")
+            done
+        fi
+    fi
 
-    # Return the assembled buffer (which includes ANSI escape codes)
-    printf "%s" "$buffer" # Print raw buffer with escapes
+    # Print the complete buffer with all positioned lines
+    printf "%s" "$buffer"
 }
 
 # --- Main Render Dispatcher ---
