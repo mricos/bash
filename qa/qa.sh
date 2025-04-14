@@ -1,27 +1,18 @@
-#!/bin/bash
-
-#source $(dirname $BASH_SOURCE)/src/formatting.sh
-# Directory for storing data and configurations
 QA_SRC="$HOME/src/bash/qa/qa.sh"
-SCRIPT_DIR=$(dirname "${BASH_SOURCE[0]}")
 QA_DIR="$HOME/.qa"
 
 qq() { qa_query "$@"; }
-q1() { _QA_ENGINE=gpt-3.5-turbo; qa_query "$@"; }
-q3() { _QA_ENGINE=gpt-4o-mini; qa_query "$@"; }
-q2() { _QA_ENGINE=gpt-4-turbo; qa_query "$@"; }
-q4() { _QA_ENGINE=chatgpt-4o-latest; qa_query "$@"; }
+q1() { QA_ENGINE=gpt-3.5-turbo; qa_query "$@"; }
+q2() { QA_ENGINE=gpt-4-turbo; qa_query "$@"; }
+q3() { QA_ENGINE=gpt-4o-mini; qa_query "$@"; }
+q4() { QA_ENGINE=chatgpt-4o-latest; qa_query "$@"; }
+qaq() { qa_queue; }
 
+QA_ENGINE_FILE="$QA_DIR/engine"
+QA_CONTEXT_FILE="$QA_DIR/context"
+OPENAI_API_FILE="$QA_DIR/api_key"
 
-# Default configurations overwriten by init()
-_QA_ENGINE="gpt-3.5-turbo"             # Default engine
-_QA_ENGINE_ALT="chatgpt-4o-latest"     # Default alt engine
-_QA_CONTEXT="Write smart, dry answers" # Example default context
-
-_QA_ENGINE_FILE="$QA_DIR/engine"
-_QA_CONTEXT_FILE="$QA_DIR/context"
-_OPENAI_API_FILE="$QA_DIR/api_key"
-
+SCRIPT_DIR=$(dirname "${BASH_SOURCE[0]}")
 source $SCRIPT_DIR/getcode.sh
 
 _qa_sanitize_index ()
@@ -54,15 +45,42 @@ _qa_sanitize_input()
     echo "$input"
 }
 
+_truncate_middle() {
+  local input
 
+  if [[ -n "$1" ]]; then
+    input="$1"
+  else
+    input="$(cat)"
+  fi
+
+  # Set default COLUMNS if not set
+  local cols=${COLUMNS:-80}
+  local maxwidth=$((cols - 2))
+  local len=${#input}
+
+  if (( len <= maxwidth )); then
+    echo "$input"
+  else
+    local keep=$(( (maxwidth - 3) / 2 ))
+    local start="${input:0:keep}"
+    local end="${input: -keep}"
+    echo "${start}...${end}"
+  fi
+}
 qa_test(){
   qq what is the fastest land animal?
   a
 }
 
-qa_query ()
+qa_query(){
+  q_gpt_query ${@}
+  QA_QUEUE+=($(a_last_id))
+}
+
+q_gpt_query ()
 {
-    echo "Using $_QA_ENGINE" >&2
+    echo "Using $QA_ENGINE" >&2
     local api_endpoint="https://api.openai.com/v1/chat/completions"
     local db="$QA_DIR/db"
     local id=$(date +%s)
@@ -77,7 +95,7 @@ qa_query ()
     echo "$input" > "$db/$id.prompt"
     input=$(_qa_sanitize_input "$input")
     local data
-    data=$(jq -nc --arg model "$_QA_ENGINE" \
+    data=$(jq -nc --arg model "$QA_ENGINE" \
                    --arg content "$input" \
    '{
      model: $model,
@@ -101,7 +119,7 @@ qa_query ()
     response=$("${curl_cmd[@]}")
 
     if [ $? -ne 0 ]; then
-        echo "Curl command failed. Check the API endpoint cconnection."
+        echo "Curl command failed. Check the API endpoint connection."
         return 1
     fi
 
@@ -114,63 +132,67 @@ qa_query ()
     fi
 
     echo "$answer" > "$db/$id.answer"
-    ln -sf "$db/$id.answer" "$QA_DIR/last_answer"
-
-    # If cli was not empty then we are answering 
-    # a short question so print it out.
-    # Multiline responses do not print automatically.
-    [ ! -z "$1" ] && echo "$answer"
+    [ ! -z "$1" ] && echo "$answer"       # show for single line questions
     
 } 
 
+qa_queue(){
+  local i=${#QA_QUEUE[@]}
+  for id in ${QA_QUEUE[@]}; do
+     ((i--))
+     echo "$i:$id: $(head -n 1 $QA_DIR/db/$id.prompt)" \
+     | _truncate_middle
+  done
+}
 # Show documentation
 qa_help() {
     cat <<EOF
-Q&A Command Line Tool Documentation:
-------------------------------------
-qa_docs          - Show this documentation.
-qa_status        - Display current system status.
-qa_set_apikey    - Set the API key for the Q&A engine.
-qa_set_engine    - Set the Q&A engine (default: OpenAI).
-qa_set_context   - Set default context for queries.
-qa_select_engine - Select the engine from available OpenAI engines.
-q                - Query with detailed output
-a                - Most recent answer
-as               - All answers
+   Q&A Command Line Tool Documentation:
+   ------------------------------------
+   qa_help          - Show this documentation.
+   qa_status        - Display current system status.
+   qa_select_engine - Select the engine from available OpenAI engines.
+   qa_set_engine    - Set the Q&A engine (default: OpenAI).
+   qa_set_apikey    - Set the API key for the Q&A engine.
+   qa_set_context   - Set default context for queries.
+   a                - Most recent answer
+   fa 1             - Formatted 2nd most recent
+   q                - Query with detailed output
 
 EOF
 }
 
 # Display current system status
 qa_status() {
-    echo "API Key file: $_OPENAI_API_FILE"
-    echo "API Key: $(cat $_OPENAI_API_FILE)"
-    echo "Engine: $(cat $_QA_ENGINE_FILE)"
-    echo "Context: $(cat $_QA_CONTEXT_FILE)"
+    echo
+    echo "  Query and Answer system, ver 007m2"
+    echo
+    echo "API Key file: $OPENAI_API_FILE"
+    echo "API Key: $(cat $OPENAI_API_FILE)"
+    echo "Engine: $(cat $QA_ENGINE_FILE)"
+    echo "Context: $(cat $QA_CONTEXT_FILE)"
 }
 
 # Set the API key for the Q&A engine
 qa_set_apikey() {
-    _OPENAI_API="$1"
-    echo "$_OPENAI_API" > "$_OPENAI_API_FILE"
+    echo "$1" > "$OPENAI_API_FILE"
 }
 
 # Set the Q&A engine (default: OpenAI)
 qa_set_engine() {
-    _QA_ENGINE="$1"
-    echo "$_QA_ENGINE" > "$_QA_ENGINE_FILE"
+    QA_ENGINE="$1"
+    echo "$QA_ENGINE" > "$QA_ENGINE_FILE"
 }
 
 # Set default context for queries
 qa_set_context() {
-    _QA_CONTEXT="$1"
-    echo "$_QA_CONTEXT" > "$_QA_CONTEXT_FILE"
+    echo "$1" > "$QA_CONTEXT_FILE"
 }
 
 # List and select an engine from OpenAI's available engines
 qa_select_engine() {
     local engines=$(curl -s \
-      -H "Authorization: Bearer $_OPENAI_API" \
+      -H "Authorization: Bearer $OPENAI_API" \
       "https://api.openai.com/v1/engines")
 
     echo "Available Engines:"
@@ -194,32 +216,25 @@ qa_init() {
     # Ensure the db directory exists
     mkdir -p "$QA_DIR/db"       # all queries and responses
 
-    if [ -f "$_OPENAI_API_FILE" ]; then
-       _OPENAI_API=$(cat "$_OPENAI_API_FILE")
+    if [ -f "$OPENAI_API_FILE" ]; then
+       OPENAI_API=$(cat "$OPENAI_API_FILE")
     fi
-    if [ -f "$_QA_ENGINE_FILE" ]; then
-        _QA_ENGINE=$(cat "$_QA_ENGINE_FILE")
+    if [ -f "$QA_ENGINE_FILE" ]; then
+        QA_ENGINE=$(cat "$QA_ENGINE_FILE")
     fi
-    if [ -f "$_QA_CONTEXT_FILE" ]; then
-        _QA_CONTEXT=$(cat "$_QA_CONTEXT_FILE")
+    if [ -f "$QA_CONTEXT_FILE" ]; then
+        QA_CONTEXT=$(cat "$QA_CONTEXT_FILE")
     fi
-    qa_set_context "$_QA_CONTEXT"  # Set initial context
+    if [ -z "$QA_QUEUE" ]; then
+        QA_QUEUE=()               # per-shell chain of answers
+    fi
+
+
+    qa_set_context "$QA_CONTEXT"  # Set initial context
 }
 
 
-qa_id() {
-    local file="$1"
-    if [[ -L "$file" ]]; then
-        file=$(readlink -f "$file")
-    fi
-    local filename=$(basename "$file")
-    local id=$(echo "$filename" | cut -d '.' -f 1)
-    echo "$id"
-}
-
-
-q()
-{
+q() {
     # get the last question
     local db="$QA_DIR/db"
     local files=($(ls $db/*.prompt | sort -n))
@@ -237,16 +252,44 @@ qa_delete(){
     echo "${files[$index]}"
 }
 
-a()
-{
-    # get the last answer
-    local db="$QA_DIR/db"
-    local files=($(ls $db/*.answer | sort -n))
-    local last=$((${#files[@]}-1))
+a_last_id(){
+    basename $(a_last_answer_file) .answer    
+}
+
+a_last_answer_file(){
+    local files=($(ls $QA_DIR/db/*.answer | sort -n))
+    lastIndex=$((${#files[@]}-1))  # zero index
+    #echo "$db/*.answer: ${#files[@]}, lastIndex=$lastIndex" >&2
+    echo ${files[$lastIndex]}
+}
+a_last_answer(){
+    cat $(a_last_answer_file)
+}
+
+a() {
+    local id file files info index lastIndex
+    local N=${#QA_QUEUE[@]}
+    local db=$QA_DIR/db
     local indexFromLast=$(_qa_sanitize_index $1)
-    local index=$(($last-$indexFromLast))
-    cat "${files[$index]}"
-    ln -sf "${files[$index]}" "$QA_DIR/last_answer"
+    if (( indexFromLast < N )); then
+        index=$(($N-$indexFromLast -1 ))
+        id=${QA_QUEUE[$index]}
+        file=$db/$id.answer
+        info="[QA/local/$((index+1))/${N}${file} ]"
+    else 
+        files=($(ls $db/*.answer | sort -n))
+        lastIndex=$((${#files[@]}-1))
+        index=$(($lastIndex-$indexFromLast))
+        file="${files[$index]}"
+        id=$(basename $file .answer)
+        info="[QA/global/$((index+1))/${lastIndex}${file} ]"
+    fi 
+    
+    echo "[$id: $(head -n 1 $db/$id.prompt | _truncate_middle )]"
+    echo 
+    cat $file
+    echo
+    echo $info
 }
 
 qa_responses ()
@@ -263,7 +306,6 @@ qa_responses ()
 }
 
 qa_db_nuke(){
-	 # check if the user is sure
     read -p "Delete all queries and responses? [y/N] " -n 1 -r
     local db="$QA_DIR/db"
     rm -rf "$db"
@@ -274,12 +316,12 @@ qa_db_nuke(){
 
 fa() {
     # Set default values for parameters, allowing overrides
-    local lookback=${1:-0}
     local width=${2:-$((COLUMNS - 8 ))}
-    a $lookback | glow --pager -s dark -w "$width"
+    a ${@} | glow --pager -s dark -w "$width"
 }
 
 # refactor to use  _get_file
+
 # should take lookback
 # if narg = 1, lookback=0, grade=$1
 # if narg = 2, lookback=$1, grade=$2
@@ -297,3 +339,4 @@ ga(){
 
 source $SCRIPT_DIR/export.sh
 qa_init
+
