@@ -6,7 +6,7 @@ q1() { QA_ENGINE=gpt-3.5-turbo; qa_query "$@"; }
 q2() { QA_ENGINE=gpt-4-turbo; qa_query "$@"; }
 q3() { QA_ENGINE=gpt-4o-mini; qa_query "$@"; }
 q4() { QA_ENGINE=chatgpt-4o-latest; qa_query "$@"; }
-qaq() { qa_queue; }
+qs() { qa_queue; }
 
 QA_ENGINE_FILE="$QA_DIR/engine"
 QA_CONTEXT_FILE="$QA_DIR/context"
@@ -111,7 +111,7 @@ q_gpt_query ()
     # Construct curl command using an array
     local curl_cmd=(
         curl -s --connect-timeout 10 -X POST "$api_endpoint"
-        -H "Authorization: Bearer $_OPENAI_API"
+        -H "Authorization: Bearer $OPENAI_API"
         -H "Content-Type: application/json" -d "$data"
     )
 
@@ -217,7 +217,7 @@ qa_init() {
     mkdir -p "$QA_DIR/db"       # all queries and responses
 
     if [ -f "$OPENAI_API_FILE" ]; then
-       OPENAI_API=$(cat "$OPENAI_API_FILE")
+        OPENAI_API=$(cat "$OPENAI_API_FILE")
     fi
     if [ -f "$QA_ENGINE_FILE" ]; then
         QA_ENGINE=$(cat "$QA_ENGINE_FILE")
@@ -245,11 +245,7 @@ q() {
 }
 
 qa_delete(){
-    local files=($(ls $db/*.answer | sort -n))
-    local last=$((${#files[@]}-1))
-    local indexFromLast=$(_qa_sanitize_index $1)
-    local index=$(($last-$indexFromLast))
-    echo "${files[$index]}"
+    echo rm $QA_DIR/db/$1.*
 }
 
 a_last_id(){
@@ -317,7 +313,7 @@ qa_db_nuke(){
 fa() {
     # Set default values for parameters, allowing overrides
     local width=${2:-$((COLUMNS - 8 ))}
-    a ${@} | glow --pager -s dark -w "$width"
+    a "${@}" | glow --pager -s dark -w "$width"
 }
 
 # refactor to use  _get_file
@@ -339,4 +335,38 @@ ga(){
 
 source $SCRIPT_DIR/export.sh
 qa_init
+
+fa_wip() {
+  local query="$1"
+  local width=${2:-$((COLUMNS - 8))}
+  local page_size=1
+  local index=0
+  local input
+
+  # Get total lines returned by 'a' 
+  # — replace this with appropriate logic if paging by a match
+  local matches=()
+  mapfile -t matches < <(a "$query")
+
+  while true; do
+    clear
+    echo "${matches[$index]}" | glow --pager -s dark -w "$width"
+
+    echo -e "\n[Ctrl+N] Next | [Ctrl+P] Prev | [q] Quit"
+
+    # Read one character (-n1) silently (-s)
+    IFS= read -rsn1 input
+
+    # Handle extended keys (e.g., function keys, arrows send escape sequences)
+    if [[ $input == $'\x0e' ]]; then
+      # Ctrl+N => ASCII code 14
+      ((index < ${#matches[@]} - 1)) && ((index++))
+    elif [[ $input == $'\x10' ]]; then
+      # Ctrl+P => ASCII code 16
+      ((index > 0)) && ((index--))
+    elif [[ $input == "q" ]]; then
+      break
+    fi
+  done
+}
 
