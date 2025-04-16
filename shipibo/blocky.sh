@@ -256,10 +256,10 @@ propagate() {
 declare -A cell_colors # Store color identifiers (e.g., "1", "2")
 
 # Color Definitions (ANSI color codes)
-COLOR1_FG="37"  # White foreground
+COLOR1_FG="47"  # White foreground
 COLOR1_BG="44"  # Blue background
-COLOR2_FG="37"  # White foreground
-COLOR2_BG="46"  # Cyan background
+COLOR2_FG="47"  # White foreground
+COLOR2_BG="44"  # Cyan background
 
 # Helper to apply ANSI colors
 color_char() {

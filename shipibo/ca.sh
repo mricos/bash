@@ -6,10 +6,30 @@
 ALIVE='#'
 DEAD=' '
 
+export SYMBOLS=("$ALIVE" "$DEAD")   # Symbols used in the CA (e.g., space for dead, 'X' for alive)
+
+# --- Initialize Global Variables ---
+declare -gA grid           # Stores plain symbols
+declare -gA cell_colors    # Stores color IDs for each cell
+declare -gA next_grid      # For computing the next generation
+
+# Color Definitions
+COLOR_DEAD_FG="30"    # Black foreground
+COLOR_DEAD_BG="47"    # White background
+COLOR_ALIVE_FG="37"   # White foreground
+COLOR_ALIVE_BG="40"   # Black background
+
+# Helper to apply ANSI colors
+color_char() {
+    local fg_color="$1"
+    local bg_color="$2"
+    local char="$3"
+    echo -e "\033[${fg_color};${bg_color}m${char}\033[0m"
+}
+export -f color_char  # Export if needed by the engine
+
 init_rules() {
     # Define the symbols used by the renderer
-    SYMBOLS=("$ALIVE" "$DEAD")
-    # No specific rules needed for this CA, logic is in update_algorithm
     echo "INFO (ca.sh): Initialized Game of Life rules." >> "$DEBUG_LOG_FILE"
 
     # Define documentation pages
@@ -101,6 +121,7 @@ _clear_grid() {
         for ((x=0; x<COLS; x++)); do
             local key="$y,$x"
             grid["$key"]="$DEAD"
+            cell_colors[$key]="dead"
             collapsed["$key"]=1 # All cells 'collapsed' initially
             possibilities["$key"]="" # Not used
         done
@@ -117,6 +138,7 @@ _init_random() {
             # Randomly initialize ~20% of cells as alive
             if [[ $((RANDOM % 5)) -eq 0 ]]; then
                 grid["$key"]="$ALIVE"
+                cell_colors[$key]="alive"
             fi
         done
     done
@@ -134,6 +156,9 @@ _init_blinker() {
         grid["$((center_y - 1)),$center_x"]="$ALIVE"
         grid["$center_y,$center_x"]="$ALIVE"
         grid["$((center_y + 1)),$center_x"]="$ALIVE"
+        cell_colors[$((center_y - 1)),$center_x]="alive"
+        cell_colors[$center_y,$center_x]="alive"
+        cell_colors[$((center_y + 1)),$center_x]="alive"
         echo "DEBUG (ca.sh): Placed Blinker at ($((center_y-1)),$center_x) to ($((center_y+1)),$center_x)." >> "$DEBUG_LOG_FILE"
     else
         echo "WARN (ca.sh): Grid too small to place Blinker pattern near center. Placing single cell." >> "$DEBUG_LOG_FILE"
@@ -154,6 +179,10 @@ _init_block() {
         grid["$center_y,$((center_x + 1))"]="$ALIVE"
         grid["$((center_y + 1)),$center_x"]="$ALIVE"
         grid["$((center_y + 1)),$((center_x + 1))"]="$ALIVE"
+        cell_colors[$center_y,$center_x]="alive"
+        cell_colors[$center_y,$((center_x + 1))]="alive"
+        cell_colors[$((center_y + 1)),$center_x]="alive"
+        cell_colors[$((center_y + 1)),$((center_x + 1))]="alive"
         echo "DEBUG (ca.sh): Placed Block at ($center_y,$center_x)." >> "$DEBUG_LOG_FILE"
     else
         echo "WARN (ca.sh): Grid too small to place Block pattern near center. Placing single cell." >> "$DEBUG_LOG_FILE"
@@ -196,6 +225,7 @@ _init_glider() {
             local y=$((start_y + rel_y))
             local x=$((start_x + rel_x))
             grid["$y,$x"]="$ALIVE"
+            cell_colors[$y,$x]="alive"
         done
         echo "DEBUG (ca.sh): Placed Glider starting near ($start_y,$start_x)." >> "$DEBUG_LOG_FILE"
     else
@@ -240,6 +270,7 @@ _init_r_pentomino() {
             local y=$((center_y + rel_y))
             local x=$((center_x + rel_x))
             grid["$y,$x"]="$ALIVE"
+            cell_colors[$y,$x]="alive"
         done
         echo "DEBUG (ca.sh): Placed R-pentomino centered near ($center_y,$center_x)." >> "$DEBUG_LOG_FILE"
     else
@@ -279,7 +310,8 @@ init_grid() {
 # --- Algorithm Update Step ---
 update_algorithm() {
     # echo "DEBUG (ca.sh): Starting Game of Life update step." >> "$DEBUG_LOG_FILE"
-    local -A next_grid # Temporary grid for the next state
+    next_grid=()
+    local changes=0
 
     for ((y=0; y<ROWS; y++)); do
         for ((x=0; x<COLS; x++)); do
@@ -315,6 +347,15 @@ update_algorithm() {
                 fi
             fi
             next_grid["$key"]="$next_state"
+            if [[ "$next_state" != "$current_state" ]]; then
+                cell_colors[$key]="${cell_colors[$key]#*_}"
+                if [[ "$next_state" == "$ALIVE" ]]; then
+                    cell_colors[$key]+="alive"
+                else
+                    cell_colors[$key]+="dead"
+                fi
+                ((changes++))
+            fi
         done
     done
 
@@ -324,6 +365,17 @@ update_algorithm() {
     done
 
     # echo "DEBUG (ca.sh): Game of Life update step finished." >> "$DEBUG_LOG_FILE"
-    STATUS_MESSAGE="Iteration complete" # Set status for the engine
+    STATUS_MESSAGE="CA Updated: $changes changes"
     return 0 # Indicate success / continue running
-} 
+}
+
+# Ensure color definitions are exported if needed
+export COLOR_DEAD_FG COLOR_DEAD_BG COLOR_ALIVE_FG COLOR_ALIVE_BG
+
+# --- Provide Documentation Pages (Optional) ---
+PAGES=(
+    "CELLULAR AUTOMATA
+
+A simple implementation of
+Conway's Game of Life."
+) 

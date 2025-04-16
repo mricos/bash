@@ -113,46 +113,87 @@ load_and_init_algorithm() {
 # --- Rendering Helper Functions ---
 # File: simple_engine.sh
 
+# Function to build the grid lines for the 1x1 character view
+# Reads primarily from 'grid' and 'collapsed' arrays provided by the algorithm script.
+# Uses 'cell_colors' for optional coloring.
 _build_grid_lines_1x1() {
-    grid_lines_1x1=()
-    # Get the single error character mapping for display, default to '×'
+    grid_lines_1x1=() # Reset the array that will hold the output lines
+    # Attempt to get the single error character mapping defined by the algorithm, default to '×'
+    # Note: This might not be defined by all algorithms, hence the default.
     local error_char="${TILE_NAME_TO_CHAR[ERROR]:-×}" 
 
-    echo "DEBUG (_build_grid_lines_1x1): Building 1x1 grid lines. Reading from 'possibilities'. Checking 'collapsed'." >> "$DEBUG_LOG_FILE"
-    for ((row=0; row<ROWS; row++)); do
-        local line=""
-        for ((col=0; col<COLS; col++)); do
-            local key="$row,$col"
-            local cell_possibilities="${possibilities[$key]}" # Get content (can be single char or many)
-            local is_collapsed="${collapsed[$key]:-0}"      # Check collapsed status (default 0)
-            local display_char=""                           # Character to actually display
+    echo "DEBUG (_build_grid_lines_1x1): Building 1x1 grid lines. Reading from 'grid' and checking 'collapsed'." >> "$DEBUG_LOG_FILE"
 
-            # Determine the character to display
+    # Iterate through each cell of the grid dimensions
+    for ((row=0; row<ROWS; row++)); do
+        local line="" # Initialize the string for the current row
+        for ((col=0; col<COLS; col++)); do
+            local key="$row,$col" # Create the array key for the current cell
+
+            # --- Read the primary state arrays ---
+            local cell_content="${grid[$key]}"            # Primary state (e.g., "#", " ", "─", "STRAIGHT_H", "ERROR")
+            local is_collapsed="${collapsed[$key]:-0}"    # Collapsed status (0 or 1)
+            
+            local display_char="" # Initialize the character to be displayed
+
+            # --- Determine the single character to display ---
             if [[ "$is_collapsed" == "1" ]]; then
-                # Cell IS collapsed - display the single character from possibilities
-                # It should only contain one character if collapsed=1
-                display_char="$cell_possibilities" 
+                # --- Cell IS collapsed ---
+                # The actual character/state should be in the 'grid' array for ca.sh, snake.sh
+                display_char="$cell_content"
+
+                # --- Sanity Checks & Corrections ---
+                # If grid content is unexpectedly empty for a collapsed cell
+                if [[ -z "$display_char" ]]; then
+                    echo "WARN (_build_grid_lines_1x1): Collapsed cell $key has empty grid content! Using '?'. Check algorithm." >> "$DEBUG_LOG_FILE"
+                    display_char="?"
+                # Check if grid content is a multi-character string (like a WFC tile name)
+                # If so, try to get the character from 'possibilities' as a fallback for grid2.sh
+                elif [[ "${#display_char}" -gt 1 ]]; then
+                    local possibilities_char="${possibilities[$key]}"
+                    if [[ "${#possibilities_char}" == 1 ]]; then
+                         # Fallback succeeded: use the single char from possibilities
+                         display_char="$possibilities_char"
+                         echo "DEBUG (_build_grid_lines_1x1): Collapsed cell $key grid content '${cell_content}' >1 char. Used fallback possibilities char '$display_char'." >> "$DEBUG_LOG_FILE"
+                    else
+                         # Fallback failed: possibilities is also multi-char or empty
+                         echo "WARN (_build_grid_lines_1x1): Collapsed cell $key grid content '${cell_content}' >1 char, and possibilities '${possibilities_char}' not single char. Using error char '$error_char'." >> "$DEBUG_LOG_FILE"
+                         display_char="$error_char" # Use error char if grid has name and possibilities doesn't have single char
+                    fi
+                fi
+                 # --- End Sanity Checks ---
+
+                # --- Optional: Apply color ---
+                local color_id="${cell_colors[$key]}" # Get color ID if it exists
+                # Check if color_char function exists and color_id is set
+                if declare -F color_char &>/dev/null && [[ -n "$color_id" ]]; then
+                     # Attempt to retrieve specific FG/BG colors if defined by algorithm
+                     # Using generic names here, adapt if algorithms use different var names
+                     local fg_color_var="COLOR_${color_id^^}_FG" # e.g., COLOR_ALIVE_FG
+                     local bg_color_var="COLOR_${color_id^^}_BG" # e.g., COLOR_ALIVE_BG
+                     local fg="${!fg_color_var:-37}" # Default white FG
+                     local bg="${!bg_color_var:-40}" # Default black BG
+                     
+                     # Ensure display_char is defined before coloring
+                     if [[ -n "$display_char" ]]; then
+                        display_char="$(color_char "$fg" "$bg" "$display_char")"
+                     fi
+                fi
+                # --- End Optional Color ---
+
             else
-                # Cell IS NOT collapsed - display a placeholder
+                # --- Cell IS NOT collapsed ---
+                # Always display a placeholder character
                 display_char="·" 
             fi
 
-            # Ensure display_char is only one character long (safety check)
-            # If a collapsed cell somehow still has multiple possibilities, show error char
-            if [[ "${#display_char}" -gt 1 ]] && [[ "$is_collapsed" == "1" ]]; then
-                 echo "WARN (_build_grid_lines_1x1): Collapsed cell $key has possibilities '$cell_possibilities'. Displaying error char." >> "$DEBUG_LOG_FILE"
-                 display_char="$error_char"
-            elif [[ -z "$display_char" ]] && [[ "$is_collapsed" == "1" ]]; then
-                 # Handle case where collapsed cell has empty possibilities (shouldn't happen)
-                 echo "WARN (_build_grid_lines_1x1): Collapsed cell $key has empty possibilities. Displaying '?'. " >> "$DEBUG_LOG_FILE"
-                 display_char="?"
-            fi
-
-            # Append the single character (or placeholder) to the line
+            # Append the final single character (or placeholder/colored char) to the line
             line+="${display_char}"
         done
+        # Add the completed line string to the output array
         grid_lines_1x1+=("$line")
     done
+    # echo "DEBUG (_build_grid_lines_1x1): Finished building 1x1 lines. First line: '${grid_lines_1x1[0]}'" >> "$DEBUG_LOG_FILE"
 }
 
 _build_grid_lines_1x1_FUCKED() {
