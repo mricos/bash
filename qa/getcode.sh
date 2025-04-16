@@ -1,29 +1,35 @@
 getcode() {
-  local index=${1:-1}      # Default to code block #1
+  local index="${1:-1}"     # Default index is 1
   local count=0
   local collecting=false
   local block=""
-  
+
   while IFS= read -r line || [ -n "$line" ]; do
     if [[ "$line" =~ ^\`\`\` ]]; then
       if $collecting; then
+        # End of a code block
         count=$((count + 1))
-        # Check if this is the code block to print
-        if [ "$count" -eq "$index" ]; then
+        if [[ "$index" == "all" ]]; then
+          printf '%s\n' "$block"
+        elif [[ "$count" -eq "$index" ]]; then
           printf '%s\n' "$block"
           return 0
         fi
         block=""
         collecting=false
       else
+        # Start of a code block
         collecting=true
-        block=""  # Start collecting a new block
+        block=""
       fi
     elif $collecting; then
       block+="$line"$'\n'
     fi
   done
 
-  echo "Code block #$index not found." >&2
-  return 1
+  # If specific index not found
+  if [[ "$index" != "all" ]]; then
+    echo "Code block #$index not found." >&2
+    return 1
+  fi
 }
