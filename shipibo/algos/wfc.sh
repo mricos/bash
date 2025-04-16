@@ -194,7 +194,7 @@ propagate() {
 # Initialize connection rules (Tube Network Theme)
 init_rules() {
     rules=() # Clear global rules
-    echo "INFO (wfc.sh): Initializing Tube Network rules..." >> "$DEBUG_LOG_FILE"
+    echo "INFO (wfc.sh): Initializing Tube Network rules..." >> "$LOG_FILE"
 
     # Define what can be placed TO THE [left, right, up, down] OF the key symbol,
     # ensuring the connecting edges match.
@@ -280,7 +280,7 @@ init_rules() {
             [[ -v rules["$rule_key"] ]] || rules["$rule_key"]=""
         done
     done
-    echo "INFO (wfc.sh): Tube Network rules initialized." >> "$DEBUG_LOG_FILE"
+    echo "INFO (wfc.sh): Tube Network rules initialized." >> "$LOG_FILE"
 }
 
 # Initialize grid with Shipibo pattern guidance
@@ -291,7 +291,7 @@ init_grid() {
     collapsed=()
     local all_symbols_str="${SYMBOLS[*]}"
 
-    echo "INFO (wfc.sh - reverted): Initializing grid (${ROWS}x${COLS})." >> "$DEBUG_LOG_FILE"
+    echo "INFO (wfc.sh - reverted): Initializing grid (${ROWS}x${COLS})." >> "$LOG_FILE"
 
     for ((y = 0; y < ROWS; y++)); do
         for ((x = 0; x < COLS; x++)); do
@@ -317,17 +317,17 @@ init_grid() {
             grid[$seed_key]="$seed_symbol"
             possibilities[$seed_key]="$seed_symbol"
             collapsed[$seed_key]=1
-            echo "INFO (wfc.sh - reverted): Seeded grid at $seed_key with '$seed_symbol'." >> "$DEBUG_LOG_FILE"
+            echo "INFO (wfc.sh - reverted): Seeded grid at $seed_key with '$seed_symbol'." >> "$LOG_FILE"
             # Propagate from the seed immediately
             propagate "$seed_y" "$seed_x"
         else
-             echo "WARN (wfc.sh - reverted): Cannot seed at $seed_key, no initial options?" >> "$DEBUG_LOG_FILE"
+             echo "WARN (wfc.sh - reverted): Cannot seed at $seed_key, no initial options?" >> "$LOG_FILE"
         fi
     else
-        echo "WARN (wfc.sh - reverted): Seed key $seed_key invalid." >> "$DEBUG_LOG_FILE"
+        echo "WARN (wfc.sh - reverted): Seed key $seed_key invalid." >> "$LOG_FILE"
     fi
 
-    echo "INFO (wfc.sh - reverted): Grid initialized and seeded. ${#grid[@]} cells." >> "$DEBUG_LOG_FILE"
+    echo "INFO (wfc.sh - reverted): Grid initialized and seeded. ${#grid[@]} cells." >> "$LOG_FILE"
 }
 
 # Modify update_algorithm to use the Shipibo biasing
@@ -352,7 +352,7 @@ update_algorithm() {
                     possibilities[$key]="$ERROR_SYMBOL"
                     collapsed[$key]=1 # Mark error cell as collapsed
                 fi
-                 echo "WARN (wfc.sh - reverted): Cell $key is contradiction." >> "$DEBUG_LOG_FILE"
+                 echo "WARN (wfc.sh - reverted): Cell $key is contradiction." >> "$LOG_FILE"
                 continue # Don't consider this cell for minimum entropy
             fi
 
@@ -374,18 +374,18 @@ update_algorithm() {
     # --- Check Results ---
     if [[ $all_cells_collapsed_check -eq 1 ]]; then
         STATUS_MESSAGE="WFC Complete! (All collapsed)"
-        echo "INFO (wfc.sh - reverted): All cells collapsed." >> "$DEBUG_LOG_FILE"
+        echo "INFO (wfc.sh - reverted): All cells collapsed." >> "$LOG_FILE"
         return 1 # Signal completion
     fi
 
     if (( ${#candidates[@]} == 0 )); then
         if [[ $potential_contradiction -eq 1 ]]; then
             STATUS_MESSAGE="WFC Error: Contradiction detected."
-            echo "ERROR (wfc.sh - reverted): Contradiction detected (no candidates with >0 entropy)." >> "$DEBUG_LOG_FILE"
+            echo "ERROR (wfc.sh - reverted): Contradiction detected (no candidates with >0 entropy)." >> "$LOG_FILE"
         else
             # This case happens if all remaining cells have 0 entropy but weren't marked as errors
             STATUS_MESSAGE="WFC Error: No candidates found (all remaining cells have 0 entropy)."
-            echo "ERROR (wfc.sh - reverted): No candidates found, likely stuck." >> "$DEBUG_LOG_FILE"
+            echo "ERROR (wfc.sh - reverted): No candidates found, likely stuck." >> "$LOG_FILE"
             # Mark remaining uncollapsed as errors? Or just stop? Let's stop.
         fi
         return 1 # Signal error/stuck
@@ -400,7 +400,7 @@ update_algorithm() {
     if (( ${#options[@]} == 0 )); then
         # This should ideally be caught earlier, but as a safeguard
         STATUS_MESSAGE="WFC Error: Picked candidate $pick has no options unexpectedly."
-        echo "ERROR (wfc.sh - reverted): Candidate $pick '$options_str' zero options on collapse." >> "$DEBUG_LOG_FILE"
+        echo "ERROR (wfc.sh - reverted): Candidate $pick '$options_str' zero options on collapse." >> "$LOG_FILE"
         grid[$pick]="$ERROR_SYMBOL"
         possibilities[$pick]="$ERROR_SYMBOL"
         collapsed[$pick]=1
@@ -414,7 +414,7 @@ update_algorithm() {
     grid[$pick]="$symbol"
     possibilities[$pick]="$symbol" # Keep possibilities synced
     collapsed[$pick]=1
-    echo "DEBUG (wfc.sh - reverted): Collapsed $pick to '$symbol' (Entropy $min_entropy)." >> "$DEBUG_LOG_FILE"
+    echo "DEBUG (wfc.sh - reverted): Collapsed $pick to '$symbol' (Entropy $min_entropy)." >> "$LOG_FILE"
 
     # Propagate the constraints
     propagate "$y" "$x"

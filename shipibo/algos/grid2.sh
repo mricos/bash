@@ -139,7 +139,7 @@ propagate() {
 
         if (( ${#surviving_names_arr[@]} == 0 )); then
             if [[ "$original_options_names" != "$ERROR_SYMBOL" ]]; then
-                 echo "!!!!!! CONTRADICTION in propagate at $current_key. Original names: [$original_options_names]." >> "$DEBUG_LOG_FILE"
+                 echo "!!!!!! CONTRADICTION in propagate at $current_key. Original names: [$original_options_names]." >> "$LOG_FILE"
                  grid[$current_key]="$ERROR_SYMBOL"
                  possibilities[$current_key]="${TILE_NAME_TO_CHAR[$ERROR_SYMBOL]}"
                  collapsed[$current_key]=1
@@ -151,7 +151,7 @@ propagate() {
              local new_options_chars=$(convert_names_to_chars "$new_options_names")
 
              if [[ "$original_options_names" != "$new_options_names" ]]; then
-                 echo "Propagate $current_key: Names reduced from [$original_options_names] to [$new_options_names], Chars: [$new_options_chars]" >> "$DEBUG_LOG_FILE"
+                 echo "Propagate $current_key: Names reduced from [$original_options_names] to [$new_options_names], Chars: [$new_options_chars]" >> "$LOG_FILE"
                  grid[$current_key]="$new_options_names"
                  possibilities[$current_key]="$new_options_chars"
 
@@ -166,11 +166,11 @@ propagate() {
              if [[ "${collapsed[$current_key]:-0}" == "0" ]]; then
                   collapsed[$current_key]=1
                   possibilities[$current_key]="${TILE_NAME_TO_CHAR[${surviving_names_arr[0]}]}"
-                  echo "Auto-collapsed $current_key to '${surviving_names_arr[0]}'" >> "$DEBUG_LOG_FILE"
+                  echo "Auto-collapsed $current_key to '${surviving_names_arr[0]}'" >> "$LOG_FILE"
              fi
         fi
     done
-    if (( processed_count >= max_processed )); then echo "ERROR (propagate): Exceeded max steps." >> "$DEBUG_LOG_FILE"; STATUS_MESSAGE="Error: Propagation loop."; fi
+    if (( processed_count >= max_processed )); then echo "ERROR (propagate): Exceeded max steps." >> "$LOG_FILE"; STATUS_MESSAGE="Error: Propagation loop."; fi
 }
 
 # ───── Engine-Called Functions ─────
@@ -178,7 +178,7 @@ propagate() {
 # Initialize connection rules (Using TILE NAMES)
 init_rules() {
     rules=() # Clear global rules
-    echo "INFO (grid2.sh): Initializing 2x2 Tube Network rules (using tile names)..." >> "$DEBUG_LOG_FILE"
+    echo "INFO (grid2.sh): Initializing 2x2 Tube Network rules (using tile names)..." >> "$LOG_FILE"
     local opens_right="STRAIGHT_H BEND_NE BEND_SE CROSS T_NORTH T_SOUTH T_WEST"
     local opens_left="STRAIGHT_H BEND_NW BEND_SW CROSS T_NORTH T_SOUTH T_EAST"
     local opens_top="STRAIGHT_V BEND_NW BEND_NE CROSS T_EAST T_WEST T_SOUTH"
@@ -196,7 +196,7 @@ init_rules() {
     rules["CROSS_left"]="$opens_right"; rules["CROSS_right"]="$opens_left"; rules["CROSS_up"]="$opens_bottom"; rules["CROSS_down"]="$opens_top"
     local -a all_tile_names=("${SYMBOLS[@]}"); local -a all_dirs=("left" "right" "up" "down")
     for name in "${all_tile_names[@]}"; do for dir in "${all_dirs[@]}"; do local rule_key="${name}_${dir}"; printf -v rules["$rule_key"] '%s' "${rules[$rule_key]:-}"; done; done
-    echo "INFO (grid2.sh): 2x2 Tube Network rules initialized." >> "$DEBUG_LOG_FILE"
+    echo "INFO (grid2.sh): 2x2 Tube Network rules initialized." >> "$LOG_FILE"
 }
 
 # Initialize grid: 'grid' has names, 'possibilities' has chars. Seed 'CROSS'/'C'.
@@ -205,8 +205,8 @@ init_grid() {
     local all_symbols_names="${SYMBOLS[*]}" # String of names
     local all_symbols_chars=$(convert_names_to_chars "$all_symbols_names") # String of chars
 
-    echo "INFO (grid2.sh): Initializing grid (${ROWS}x${COLS}). Grid=Names, Possibilities=Chars." >> "$DEBUG_LOG_FILE"
-    echo "INFO (grid2.sh): Initial possibilities string: '$all_symbols_chars'" >> "$DEBUG_LOG_FILE"
+    echo "INFO (grid2.sh): Initializing grid (${ROWS}x${COLS}). Grid=Names, Possibilities=Chars." >> "$LOG_FILE"
+    echo "INFO (grid2.sh): Initial possibilities string: '$all_symbols_chars'" >> "$LOG_FILE"
 
     for ((y=0; y<ROWS; y++)); do for ((x=0; x<COLS; x++)); do local key="$y,$x"
         grid[$key]="$all_symbols_names"; possibilities[$key]="$all_symbols_chars"; collapsed[$key]=0
@@ -217,12 +217,12 @@ init_grid() {
 
     if [[ -v grid["$seed_key"] ]]; then
         grid[$seed_key]="$seed_name"; possibilities[$seed_key]="$seed_char"; collapsed[$seed_key]=1
-        echo "INFO (grid2.sh): Seeded $seed_key. Grid='$seed_name', Poss='$seed_char'." >> "$DEBUG_LOG_FILE"
+        echo "INFO (grid2.sh): Seeded $seed_key. Grid='$seed_name', Poss='$seed_char'." >> "$LOG_FILE"
         propagate "$seed_y" "$seed_x"
-    else echo "WARN (grid2.sh): Seed key $seed_key invalid." >> "$DEBUG_LOG_FILE"; fi
+    else echo "WARN (grid2.sh): Seed key $seed_key invalid." >> "$LOG_FILE"; fi
 
     local contradictions=0; for key in "${!grid[@]}"; do [[ "${grid[$key]}" == "$ERROR_SYMBOL" ]] && contradictions=1 && break; done
-    if [[ $contradictions -eq 1 ]]; then echo "ERROR (grid2.sh): Contradiction after init!" >> "$DEBUG_LOG_FILE"; STATUS_MESSAGE="Error: Initial contradiction."; else echo "INFO (grid2.sh): Grid init OK." >> "$DEBUG_LOG_FILE"; fi
+    if [[ $contradictions -eq 1 ]]; then echo "ERROR (grid2.sh): Contradiction after init!" >> "$LOG_FILE"; STATUS_MESSAGE="Error: Initial contradiction."; else echo "INFO (grid2.sh): Grid init OK." >> "$LOG_FILE"; fi
 }
 
 # Find cell with minimum entropy (fewest names in grid array) and collapse it
@@ -234,7 +234,7 @@ update_algorithm() {
             local current_options_names="${grid[$key]-}"
             if [[ "$current_options_names" == "$ERROR_SYMBOL" ]]; then potential_contradiction=1; [[ "${collapsed[$key]}" == "0" ]] && collapsed[$key]=1; continue; fi
             local -a opts_arr=($current_options_names); local entropy=${#opts_arr[@]}
-            if (( entropy == 0 )); then echo "!!!!!! CONTRADICTION in update for $key. Names empty." >> "$DEBUG_LOG_FILE"; potential_contradiction=1; grid[$key]="$ERROR_SYMBOL"; possibilities[$key]="${TILE_NAME_TO_CHAR[$ERROR_SYMBOL]}"; collapsed[$key]=1; continue; fi
+            if (( entropy == 0 )); then echo "!!!!!! CONTRADICTION in update for $key. Names empty." >> "$LOG_FILE"; potential_contradiction=1; grid[$key]="$ERROR_SYMBOL"; possibilities[$key]="${TILE_NAME_TO_CHAR[$ERROR_SYMBOL]}"; collapsed[$key]=1; continue; fi
             if (( entropy < min_entropy )); then min_entropy=$entropy; candidates=("$key"); elif (( entropy == min_entropy )); then local exists=0; for cand in "${candidates[@]}"; do [[ "$cand" == "$key" ]] && { exists=1; break; }; done; [[ $exists -eq 0 ]] && candidates+=("$key"); fi
         fi
     done
@@ -248,7 +248,7 @@ update_algorithm() {
 
     local chosen_name="${options_arr[$((RANDOM % ${#options_arr[@]}))]}"; local chosen_char="${TILE_NAME_TO_CHAR[$chosen_name]}"
     grid[$pick]="$chosen_name"; possibilities[$pick]="$chosen_char"; collapsed[$pick]=1
-    echo "DEBUG (grid2.sh Update): Collapsed $pick to name '$chosen_name' (char '$chosen_char', Entropy $min_entropy)." >> "$DEBUG_LOG_FILE"
+    echo "DEBUG (grid2.sh Update): Collapsed $pick to name '$chosen_name' (char '$chosen_char', Entropy $min_entropy)." >> "$LOG_FILE"
 
     propagate "$y" "$x"
     local collapsed_count=0; for k in "${!collapsed[@]}"; do [[ "${collapsed[$k]:-0}" == "1" ]] && ((collapsed_count++)); done; local total_cells=$((ROWS * COLS))

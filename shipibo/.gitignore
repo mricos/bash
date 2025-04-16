@@ -1,1 +1,6 @@
+err.txt
+events.log
+tmp/
 old/
+out
+gemini/

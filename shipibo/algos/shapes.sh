@@ -77,9 +77,9 @@ _set_tile() {
         grid["$key"]="$name"
         possibilities["$key"]="$char"
         collapsed["$key"]=1 # Mark as collapsed
-        echo "DEBUG (_set_tile): Set $key (y=$y, x=$x) to Name='$name', Char='$char', Collapsed=1" >> "$DEBUG_LOG_FILE"
+        echo "DEBUG (_set_tile): Set $key (y=$y, x=$x) to Name='$name', Char='$char', Collapsed=1" >> "$LOG_FILE"
     else
-        echo "WARN (_set_tile): Coordinates ($y,$x) out of bounds for Name='$name'." >> "$DEBUG_LOG_FILE"
+        echo "WARN (_set_tile): Coordinates ($y,$x) out of bounds for Name='$name'." >> "$LOG_FILE"
     fi
 }
 
@@ -91,7 +91,7 @@ export TILE_TOPS TILE_BOTS TILE_NAME_TO_CHAR
 # Initialize rules - not used for generation, but needed by engine structure
 init_rules() {
     rules=() # Clear global rules (no rules needed for shape generation)
-    echo "INFO (grid2-shapes.sh): Rules initialized (no-op)." >> "$DEBUG_LOG_FILE"
+    echo "INFO (grid2-shapes.sh): Rules initialized (no-op)." >> "$LOG_FILE"
 }
 
 # Initialize grid: Generate a specific shape based on CURRENT_PAGE
@@ -101,7 +101,7 @@ init_grid() {
     local num_pages=${#PAGES[@]}
     local all_tiles_page_index=$((num_pages - 1)) # Index of the new "All Tiles" page
 
-    echo "INFO (grid2-shapes.sh): Initializing grid for shape page ${page_index}." >> "$DEBUG_LOG_FILE"
+    echo "INFO (grid2-shapes.sh): Initializing grid for shape page ${page_index}." >> "$LOG_FILE"
 
     # Set default for all cells (uncollapsed) - IMPORTANT for rendering
     for ((y=0; y<ROWS; y++)); do
@@ -189,7 +189,7 @@ init_grid() {
             _set_tile $y2 $((start_x + 3*spacing_x)) "BEND_SW"
             
             # Add explicit debug for BEND_SW
-            echo "DEBUG (init_grid All Tiles): BEND_SW TOP='${TILE_TOPS["BEND_SW"]}', BOT='${TILE_BOTS["BEND_SW"]}'" >> "$DEBUG_LOG_FILE"
+            echo "DEBUG (init_grid All Tiles): BEND_SW TOP='${TILE_TOPS["BEND_SW"]}', BOT='${TILE_BOTS["BEND_SW"]}'" >> "$LOG_FILE"
 
             # Row 3: T-Junctions
             local y3=$((y2 + spacing_y))
@@ -199,7 +199,7 @@ init_grid() {
             _set_tile $y3 $((start_x + 3*spacing_x)) "T_WEST"
             
             # Add explicit debug for T_WEST
-            echo "DEBUG (init_grid All Tiles): T_WEST TOP='${TILE_TOPS["T_WEST"]}', BOT='${TILE_BOTS["T_WEST"]}'" >> "$DEBUG_LOG_FILE"
+            echo "DEBUG (init_grid All Tiles): T_WEST TOP='${TILE_TOPS["T_WEST"]}', BOT='${TILE_BOTS["T_WEST"]}'" >> "$LOG_FILE"
 
             # Row 4: Cross
             local y4=$((y3 + spacing_y))
@@ -211,7 +211,7 @@ init_grid() {
     esac
 
     RUNNING=0 # Shapes are static
-    echo "INFO (grid2-shapes.sh): Grid initialized with shape: $STATUS_MESSAGE" >> "$DEBUG_LOG_FILE"
+    echo "INFO (grid2-shapes.sh): Grid initialized with shape: $STATUS_MESSAGE" >> "$LOG_FILE"
 }
 
 # Re-export the glyph arrays to ensure they're available to the engine

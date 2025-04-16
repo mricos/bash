@@ -45,7 +45,7 @@ Error: Shown as Space"
 # Initialize connection rules for T-junctions
 init_rules() {
     rules=() # Clear global rules
-    echo "INFO (wfc-basic-T): Initializing T-junction rules..." >> "$DEBUG_LOG_FILE"
+    echo "INFO (wfc-basic-T): Initializing T-junction rules..." >> "$LOG_FILE"
 
     # Define connections: what can be placed TO THE [dir] OF the key symbol
     # · (Dot/Empty) - Connects freely to anything
@@ -86,7 +86,7 @@ init_rules() {
             [[ -v rules["$rule_key"] ]] || rules["$rule_key"]=""
         done
     done
-    echo "INFO (wfc-basic-T): T-junction rules initialized." >> "$DEBUG_LOG_FILE"
+    echo "INFO (wfc-basic-T): T-junction rules initialized." >> "$LOG_FILE"
 }
 
 # Function to filter options (needed by propagate)
@@ -154,7 +154,7 @@ propagate() {
                      grid[$nkey]="$ERROR_SYMBOL" # Display error symbol
                      possibilities[$nkey]="" # Clear possibilities
                      collapsed[$nkey]=1
-                     echo "WARN (wfc-basic-T): Contradiction at $nkey" >> "$DEBUG_LOG_FILE"
+                     echo "WARN (wfc-basic-T): Contradiction at $nkey" >> "$LOG_FILE"
                  elif [[ ! -v processed_in_wave["$nkey"] ]]; then
                      queue+=("$nkey"); processed_in_wave["$nkey"]=1
                  fi
@@ -168,7 +168,7 @@ propagate() {
 init_grid() {
     grid=() possibilities=() collapsed=() # Clear global arrays
     local all_symbols="${SYMBOLS[*]}"
-    echo "INFO (wfc-basic-T): Initializing grid (${ROWS}x${COLS}) with T symbols." >> "$DEBUG_LOG_FILE"
+    echo "INFO (wfc-basic-T): Initializing grid (${ROWS}x${COLS}) with T symbols." >> "$LOG_FILE"
     for ((y=0; y<ROWS; y++)); do
         for ((x=0; x<COLS; x++)); do
             local key="$y,$x"
@@ -177,7 +177,7 @@ init_grid() {
             collapsed[$key]=0
         done
     done
-     echo "INFO (wfc-basic-T): Grid initialized." >> "$DEBUG_LOG_FILE"
+     echo "INFO (wfc-basic-T): Grid initialized." >> "$LOG_FILE"
 }
 
 # Core WFC update step (General WFC logic)
