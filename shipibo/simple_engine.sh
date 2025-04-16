@@ -1,31 +1,25 @@
 #!/usr/bin/env bash
-export LC_ALL=C.UTF-8 # Ensure UTF-8 locale
 
-export LANG=C.UTF-8
 export LC_ALL=C.UTF-8
+export LANG=C.UTF-8
 export LC_CTYPE=C.UTF-8
-# Rest of your engine script...
-
-# Simple engine that loads and runs algorithm files
 
 # --- Configuration ---
 ROWS=15
 COLS=30
-RUNNING=0           # Start paused
-SHOULD_EXIT=0       # Exit flag
-FULL_SCREEN=0       # Toggle for full screen mode
-EMPTY_DISPLAY=0     # Toggle for replacing dots with spaces
-# Define available algorithms
+RUNNING=0
+SHOULD_EXIT=0
+FULL_SCREEN=0
+EMPTY_DISPLAY=0
+
 declare -a ALGO_FILES=("snake.sh" "wfc-basic.sh" "wfc.sh" "grid2.sh" "grid2-shapes.sh" "blocky.sh" "ca.sh")
 CURRENT_ALGO_INDEX=0
-ALGO_FILE="${ALGO_FILES[$CURRENT_ALGO_INDEX]}" # Currently selected file
+ALGO_FILE="${ALGO_FILES[$CURRENT_ALGO_INDEX]}"
 STATUS_MESSAGE=""
 CURRENT_PAGE=0
-DEBUG_LOG_FILE="debug.log" # Define log file
-export DEBUG_LOG_FILE       # Export for sourced scripts
+EVENT_LOG_FILE="engine_events.log" # Define event log file
 
-# Explicitly declare shared data structures with global scope
-# These will be reset when switching algorithms
+# --- Global State (Managed by Engine & Algos) ---
 declare -gA grid
 declare -gA possibilities
 declare -gA collapsed
@@ -33,28 +27,42 @@ declare -gA rules
 declare -ga SYMBOLS
 declare -ga PAGES
 
-# --- Global State (Managed by Engine & Algos) ---
 declare -ga grid_lines_1x1
 declare -ga grid_lines_nxn
 declare -ga text_lines
-# Global algo metadata (set by algos)
+
 declare -g ALGO_TILE_WIDTH=1
 declare -g ALGO_TILE_HEIGHT=1
-# Global TILE data (set by relevant algos like grid2.sh)
+
 declare -gA TILE_TOPS
 declare -gA TILE_BOTS
-declare -gA TILE_NAME_TO_CHAR # Used by grid2.sh
+declare -gA TILE_NAME_TO_CHAR
 
-# --- Initialization ---
-# Clear the debug log at the start
-> "$DEBUG_LOG_FILE"
+# --- Logging Function ---
+log_event() {
+    local message="$1"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $message" >> "$EVENT_LOG_FILE"
+}
+
+# --- Cleanup Function (called by trap) ---
+cleanup() {
+    log_event "Engine exiting"
+    tput cnorm # Ensure cursor is visible
+    clear      # Clear the screen
+    # echo "Goodbye!" # Optional: message to user on exit
+}
+
+# --- Trap for cleanup on exit ---
+# EXIT trap catches normal exits and signals like INT, TERM
+trap cleanup EXIT INT TERM
 
 # --- Helper Function to Load and Initialize Algorithm ---
 load_and_init_algorithm() {
     local index=$1
+
     if [[ -z "${ALGO_FILES[$index]}" ]]; then
         STATUS_MESSAGE="Error: Invalid algorithm index $index"
-        echo "ERROR: Invalid algorithm index $index" >> "$DEBUG_LOG_FILE"
+        echo "ERROR: Invalid algorithm index $index" >&2
         return 1
     fi
 
@@ -65,9 +73,7 @@ load_and_init_algorithm() {
 
     if [[ ! -f "$ALGO_FILE" ]]; then
         STATUS_MESSAGE="Error: Algorithm file not found: $ALGO_FILE"
-        echo "ERROR: Algorithm file not found: $ALGO_FILE" >> "$DEBUG_LOG_FILE"
-        # Optionally reset to default or handle error
-        # For now, just show error and pause
+        echo "ERROR: Algorithm file not found: $ALGO_FILE" >&2
         RUNNING=0
         return 1
     fi
@@ -83,121 +89,97 @@ load_and_init_algorithm() {
     RUNNING=0 # Stop running when switching
 
     # Source the new algorithm
-    echo "DEBUG: Sourcing ${ALGO_FILE}" >> "$DEBUG_LOG_FILE"
     source "$ALGO_FILE"
-    echo "DEBUG: After sourcing ${ALGO_FILE}, PAGES has ${#PAGES[@]} elements" >> "$DEBUG_LOG_FILE"
 
     # Initialize the new algorithm (assuming functions exist)
     if declare -F init_rules &>/dev/null; then
-        echo "DEBUG: Initializing rules for ${ALGO_FILE}" >> "$DEBUG_LOG_FILE"
         init_rules
     else
-        echo "WARN: init_rules not found in ${ALGO_FILE}" >> "$DEBUG_LOG_FILE"
+        echo "WARN: init_rules not found in ${ALGO_FILE}" >&2
     fi
 
     if declare -F init_grid &>/dev/null; then
-        echo "DEBUG: Initializing grid for ${ALGO_FILE}" >> "$DEBUG_LOG_FILE"
         init_grid
-        echo "DEBUG: After init_grid, grid has ${#grid[@]} elements" >> "$DEBUG_LOG_FILE"
     else
-         echo "WARN: init_grid not found in ${ALGO_FILE}" >> "$DEBUG_LOG_FILE"
+         echo "WARN: init_grid not found in ${ALGO_FILE}" >&2
          # Basic grid init if function missing
-         for ((y=0; y<ROWS; y++)); do for ((x=0; x<COLS; x++)); do collapsed["$y,$x"]=0; done; done
+         for ((y=0; y<ROWS; y++)); do
+             for ((x=0; x<COLS; x++)); do
+                 collapsed["$y,$x"]=0
+             done
+         done
     fi
 
     STATUS_MESSAGE="Loaded ${ALGO_FILE}"
-    echo "INFO: Successfully loaded and initialized ${ALGO_FILE}" >> "$DEBUG_LOG_FILE"
+    log_event "Loaded and initialized algorithm: ${ALGO_FILE}"
     return 0
 }
 
 # --- Rendering Helper Functions ---
-# File: simple_engine.sh
 
 # Function to build the grid lines for the 1x1 character view
-# Reads primarily from 'grid' and 'collapsed' arrays provided by the algorithm script.
-# Uses 'cell_colors' for optional coloring.
 _build_grid_lines_1x1() {
-    grid_lines_1x1=() # Reset the array that will hold the output lines
-    # Attempt to get the single error character mapping defined by the algorithm, default to '×'
-    # Note: This might not be defined by all algorithms, hence the default.
-    local error_char="${TILE_NAME_TO_CHAR[ERROR]:-×}" 
+    grid_lines_1x1=()
+    local error_char="${TILE_NAME_TO_CHAR[ERROR]:-×}"
 
-    echo "DEBUG (_build_grid_lines_1x1): Building 1x1 grid lines. Reading from 'grid' and checking 'collapsed'." >> "$DEBUG_LOG_FILE"
-
-    # Iterate through each cell of the grid dimensions
     for ((row=0; row<ROWS; row++)); do
-        local line="" # Initialize the string for the current row
+        local line=""
         for ((col=0; col<COLS; col++)); do
-            local key="$row,$col" # Create the array key for the current cell
+            local key="$row,$col"
+            local cell_content="${grid[$key]}"
+            local is_collapsed="${collapsed[$key]:-0}"
+            local display_char=""
 
-            # --- Read the primary state arrays ---
-            local cell_content="${grid[$key]}"            # Primary state (e.g., "#", " ", "─", "STRAIGHT_H", "ERROR")
-            local is_collapsed="${collapsed[$key]:-0}"    # Collapsed status (0 or 1)
-            
-            local display_char="" # Initialize the character to be displayed
-
-            # --- Determine the single character to display ---
             if [[ "$is_collapsed" == "1" ]]; then
-                # --- Cell IS collapsed ---
-                # The actual character/state should be in the 'grid' array for ca.sh, snake.sh
                 display_char="$cell_content"
 
-                # --- Sanity Checks & Corrections ---
-                # If grid content is unexpectedly empty for a collapsed cell
+                # Sanity Checks & Corrections
                 if [[ -z "$display_char" ]]; then
-                    echo "WARN (_build_grid_lines_1x1): Collapsed cell $key has empty grid content! Using '?'. Check algorithm." >> "$DEBUG_LOG_FILE"
+                    echo "WARN (_build_grid_lines_1x1): Collapsed cell $key has empty grid content! Using '?'. Check algorithm." >&2
                     display_char="?"
-                # Check if grid content is a multi-character string (like a WFC tile name)
-                # If so, try to get the character from 'possibilities' as a fallback for grid2.sh
                 elif [[ "${#display_char}" -gt 1 ]]; then
                     local possibilities_char="${possibilities[$key]}"
                     if [[ "${#possibilities_char}" == 1 ]]; then
-                         # Fallback succeeded: use the single char from possibilities
                          display_char="$possibilities_char"
-                         echo "DEBUG (_build_grid_lines_1x1): Collapsed cell $key grid content '${cell_content}' >1 char. Used fallback possibilities char '$display_char'." >> "$DEBUG_LOG_FILE"
                     else
-                         # Fallback failed: possibilities is also multi-char or empty
-                         echo "WARN (_build_grid_lines_1x1): Collapsed cell $key grid content '${cell_content}' >1 char, and possibilities '${possibilities_char}' not single char. Using error char '$error_char'." >> "$DEBUG_LOG_FILE"
-                         display_char="$error_char" # Use error char if grid has name and possibilities doesn't have single char
+                         echo "WARN (_build_grid_lines_1x1): Collapsed cell $key grid content '${cell_content}' >1 char, and possibilities '${possibilities_char}' not single char. Using error char '$error_char'." >&2
+                         display_char="$error_char"
                     fi
                 fi
-                 # --- End Sanity Checks ---
 
-                # --- Optional: Apply color ---
+                # Optional: Apply color
                 local color_id="${cell_colors[$key]}" # Get color ID if it exists
-                # Check if color_char function exists and color_id is set
                 if declare -F color_char &>/dev/null && [[ -n "$color_id" ]]; then
-                     # Attempt to retrieve specific FG/BG colors if defined by algorithm
-                     # Using generic names here, adapt if algorithms use different var names
-                     local fg_color_var="COLOR_${color_id^^}_FG" # e.g., COLOR_ALIVE_FG
-                     local bg_color_var="COLOR_${color_id^^}_BG" # e.g., COLOR_ALIVE_BG
-                     local fg="${!fg_color_var:-37}" # Default white FG
-                     local bg="${!bg_color_var:-40}" # Default black BG
-                     
-                     # Ensure display_char is defined before coloring
-                     if [[ -n "$display_char" ]]; then
-                        display_char="$(color_char "$fg" "$bg" "$display_char")"
-                     fi
-                fi
-                # --- End Optional Color ---
+                    local fg_color_var="COLOR_${color_id^^}_FG"
+                    local bg_color_var="COLOR_${color_id^^}_BG"
+                    local fg="${!fg_color_var:-37}" # Default white FG
+                    local bg="${!bg_color_var:-40}" # Default black BG
 
+                    if [[ -n "$display_char" ]]; then
+                        display_char="$(color_char "$fg" "$bg" "$display_char")"
+                    fi
+                fi
             else
-                # --- Cell IS NOT collapsed ---
-                # Always display a placeholder character
-                display_char="·" 
+                # Cell IS NOT collapsed
+                # Use space if EMPTY_DISPLAY is on, otherwise dot
+                if [[ $EMPTY_DISPLAY -eq 1 ]]; then
+                    display_char=" "
+                else
+                    display_char="·"
+                fi
             fi
 
-            # Append the final single character (or placeholder/colored char) to the line
+            # Append the final character to the line
             line+="${display_char}"
         done
         # Add the completed line string to the output array
         grid_lines_1x1+=("$line")
     done
-    # echo "DEBUG (_build_grid_lines_1x1): Finished building 1x1 lines. First line: '${grid_lines_1x1[0]}'" >> "$DEBUG_LOG_FILE"
 }
 
+# Function to build the grid lines for the NxN tile view
 _build_grid_lines_nxn() {
-    grid_lines_nxn=() # Clear global array
+    grid_lines_nxn=()
     local current_error_symbol="${ERROR_SYMBOL:-?}"
     local tile_w=${ALGO_TILE_WIDTH:-1}
     local tile_h=${ALGO_TILE_HEIGHT:-1}
@@ -205,15 +187,14 @@ _build_grid_lines_nxn() {
     # Check if TILE data is valid
     if ! declare -p TILE_TOPS &>/dev/null || ! declare -p TILE_BOTS &>/dev/null \
            || [[ "$(declare -p TILE_TOPS)" != "declare -A"* ]] || [[ "$(declare -p TILE_BOTS)" != "declare -A"* ]]; then
-        echo "ERROR (render_nxn): TILE_TOPS/BOTS arrays not valid or not associative arrays." >> "$DEBUG_LOG_FILE"
-        grid_lines_nxn+=("ERROR: Missing or invalid TILE data for NxN rendering") # Add specific error line
-        return 1 # Indicate failure
+        echo "ERROR (render_nxn): TILE_TOPS/BOTS arrays not valid or not associative arrays." >&2
+        grid_lines_nxn+=("ERROR: Missing or invalid TILE data for NxN rendering")
+        return 1
     fi
-    # Check if TILE_TOPS is empty - indicates an issue even if declared
     if [[ ${#TILE_TOPS[@]} -eq 0 ]]; then
-         echo "ERROR (render_nxn): TILE_TOPS array is declared but empty." >> "$DEBUG_LOG_FILE"
-         grid_lines_nxn+=("ERROR: TILE_TOPS array is empty")
-         return 1
+           echo "ERROR (render_nxn): TILE_TOPS array is declared but empty." >&2
+           grid_lines_nxn+=("ERROR: TILE_TOPS array is empty")
+           return 1
     fi
 
     # Determine sample glyph width more robustly
@@ -222,21 +203,25 @@ _build_grid_lines_nxn() {
         sample_glyph_width=${#TILE_TOPS[STRAIGHT_H]}
     elif [[ ${#TILE_TOPS[@]} -gt 0 ]]; then
         local first_key
-        for first_key in "${!TILE_TOPS[@]}"; do break; done
+        for first_key in "${!TILE_TOPS[@]}"; do break; done # Find first key
         sample_glyph_width=${#TILE_TOPS[$first_key]}
     fi
     # Fallback if width couldn't be determined
     [[ $sample_glyph_width -le 0 ]] && sample_glyph_width=7
 
-    echo "DEBUG (render_nxn): Building ${tile_w}x${tile_h} lines (using sample_glyph_width=${sample_glyph_width})..." >> "$DEBUG_LOG_FILE"
-
     # Define placeholders based on the determined width
-    local placeholder_error; printf -v placeholder_error "%-${sample_glyph_width}.${sample_glyph_width}s" "   ×   "
-    local placeholder_unk; printf -v placeholder_unk "%-${sample_glyph_width}.${sample_glyph_width}s" " ·?·?· "
-    local placeholder_uncol; printf -v placeholder_uncol "%${sample_glyph_width}s" " " 
+    local placeholder_error
+    printf -v placeholder_error "%-${sample_glyph_width}.${sample_glyph_width}s" "   ×   "
+    local placeholder_unk
+    printf -v placeholder_unk "%-${sample_glyph_width}.${sample_glyph_width}s" " ·?·?· "
+    local placeholder_uncol
+    printf -v placeholder_uncol "%${sample_glyph_width}s" " "
 
     # Find the area with collapsed cells to determine the "active" region
-    local min_x=$COLS local max_x=0 local min_y=$ROWS local max_y=0
+    local min_x=$COLS
+    local max_x=0
+    local min_y=$ROWS
+    local max_y=0
     local has_collapsed=0
     for ((y=0; y<ROWS; y++)); do
         for ((x=0; x<COLS; x++)); do
@@ -250,7 +235,7 @@ _build_grid_lines_nxn() {
             fi
         done
     done
-    
+
     # Ensure we have some margin around the active area
     if [[ $has_collapsed -eq 1 ]]; then
         (( min_y > 2 )) && min_y=$((min_y - 2))
@@ -259,215 +244,223 @@ _build_grid_lines_nxn() {
         (( max_x < COLS-3 )) && max_x=$((max_x + 2))
     else
         # If nothing collapsed, just show the center area
-        min_y=$((ROWS/2 - 5)); max_y=$((ROWS/2 + 5))
-        min_x=$((COLS/2 - 10)); max_x=$((COLS/2 + 10))
+        min_y=$((ROWS/2 - 5))
+        max_y=$((ROWS/2 + 5))
+        min_x=$((COLS/2 - 10))
+        max_x=$((COLS/2 + 10))
     fi
     # Ensure bounds are valid
-    [[ $min_y -lt 0 ]] && min_y=0; [[ $max_y -ge $ROWS ]] && max_y=$((ROWS-1))
-    [[ $min_x -lt 0 ]] && min_x=0; [[ $max_x -ge $COLS ]] && max_x=$((COLS-1))
+    [[ $min_y -lt 0 ]] && min_y=0
+    [[ $max_y -ge $ROWS ]] && max_y=$((ROWS-1))
+    [[ $min_x -lt 0 ]] && min_x=0
+    [[ $max_x -ge $COLS ]] && max_x=$((COLS-1))
 
-    echo "DEBUG (render_nxn): Active region: (${min_x},${min_y}) to (${max_x},${max_y})" >> "$DEBUG_LOG_FILE"
-    
     # Only build the active region
     for ((y=min_y; y<=max_y; y++)); do
-        for ((ty=0; ty<tile_h; ty++)); do # Loop through tile height (0 and 1)
+        for ((ty=0; ty<tile_h; ty++)); do # Loop through tile height (e.g., 0 and 1)
             local current_line=""
             for ((x=min_x; x<=max_x; x++)); do
-                local key="$y,$x"; local glyph_segment=""; local collapsed_status="${collapsed[$key]:-0}"
-                
-                # --- ADD LOGGING FOR ty ---
-                echo "DEBUG (render_nxn build loop): Processing y=$y, x=$x, ty=$ty" >> "$DEBUG_LOG_FILE"
-                
+                local key="$y,$x"
+                local glyph_segment=""
+                local collapsed_status="${collapsed[$key]:-0}"
+
                 if [[ "$collapsed_status" == "1" ]]; then
                     local tile_name="${grid[$key]:-UNK}"
-                    echo "DEBUG (render_nxn build loop): Collapsed cell $key, Name='$tile_name'" >> "$DEBUG_LOG_FILE"
 
-                    # --- ADD CHECK FOR KEY EXISTENCE ---
+                    # Check for key existence (optional warning)
                     if ! [[ -v TILE_TOPS["$tile_name"] ]]; then
-                         echo "WARN (render_nxn build loop): TILE_TOPS key missing for name '$tile_name'" >> "$DEBUG_LOG_FILE"
+                         echo "WARN (render_nxn build loop): TILE_TOPS key missing for name '$tile_name'" >&2
                     fi
                     if ! [[ -v TILE_BOTS["$tile_name"] ]]; then
-                         echo "WARN (render_nxn build loop): TILE_BOTS key missing for name '$tile_name'" >> "$DEBUG_LOG_FILE"
+                         echo "WARN (render_nxn build loop): TILE_BOTS key missing for name '$tile_name'" >&2
                     fi
-                    # --- END CHECK ---
 
-                    if [[ "$tile_name" == "$current_error_symbol" ]]; then glyph_segment="$placeholder_error"
-                    elif [[ "$tile_name" == "UNK" ]]; then glyph_segment="$placeholder_unk"
+                    # Determine the glyph segment based on tile name and tile row (ty)
+                    if [[ "$tile_name" == "$current_error_symbol" ]]; then
+                        glyph_segment="$placeholder_error"
+                    elif [[ "$tile_name" == "UNK" ]]; then
+                        glyph_segment="$placeholder_unk"
                     elif (( ty == 0 )); then # Top part of the tile
                         glyph_segment="${TILE_TOPS[$tile_name]:-$placeholder_unk}"
-                        echo "DEBUG (render_nxn build loop): Fetched TOP glyph: '$glyph_segment'" >> "$DEBUG_LOG_FILE"
-                    elif (( ty == 1 && tile_h >= 2 )); then # Bottom part
+                    elif (( ty == 1 && tile_h >= 2 )); then # Bottom part (if tile_h >= 2)
                         glyph_segment="${TILE_BOTS[$tile_name]:-$placeholder_unk}"
-                        # --- LOG BOTTOM GLYPH FETCH ---
-                        echo "DEBUG (render_nxn build loop): Fetched BOT glyph: '$glyph_segment'" >> "$DEBUG_LOG_FILE"
-                    else 
+                    else # Fallback for unexpected ty or tile_h=1 and ty > 0
                         glyph_segment="$placeholder_unk"
-                        echo "DEBUG (render_nxn build loop): Using UNK placeholder (ty=$ty, tile_h=$tile_h)" >> "$DEBUG_LOG_FILE"
                     fi
-                    
-                    # Ensure the segment has the correct width if found
+
+                    # Ensure the segment has the correct width if found (pad/truncate)
                     if [[ "$glyph_segment" != "$placeholder_unk" && "$glyph_segment" != "$placeholder_error" ]]; then
-                         # --- Modify Padding Here ---
-                         local current_len # Use 'wc -m' for character length if possible, else fallback
-                         # Check if wc command exists and supports -m flag for character count
+                         local current_len
+                         # Use 'wc -m' for character length if possible, else fallback
                          if command -v wc &> /dev/null && echo "test" | wc -m &> /dev/null; then
-                             current_len=$(echo -n "$glyph_segment" | wc -m)
-                         else 
-                             current_len=${#glyph_segment} # Fallback to potentially incorrect byte length
-                             if [[ $current_len -ne $sample_glyph_width ]]; then 
-                                echo "WARN (render_nxn loop): Using byte length fallback, might be inaccurate for multibyte chars." >> "$DEBUG_LOG_FILE"
-                             fi
+                              current_len=$(echo -n "$glyph_segment" | wc -m)
+                         else
+                              current_len=${#glyph_segment} # Fallback to potentially incorrect byte length
+                              if [[ $current_len -ne $sample_glyph_width ]]; then
+                                   echo "WARN (render_nxn loop): Using byte length fallback, might be inaccurate for multibyte chars." >&2
+                              fi
                          fi
-                         
+
                          local padding_needed=$((sample_glyph_width - current_len))
-                         
-                         echo "DEBUG (render_nxn loop): key=$key, tile_name='$tile_name', ty=$ty, sample_glyph_width=$sample_glyph_width, current_len=$current_len, padding_needed=$padding_needed, BEFORE PADDING glyph_segment='${glyph_segment}'" >> "$DEBUG_LOG_FILE"
 
                          if (( padding_needed > 0 )); then
                              local padding_spaces
                              printf -v padding_spaces "%${padding_needed}s" " " # Create string of spaces
                              glyph_segment+="$padding_spaces" # Append spaces
-                         elif (( padding_needed < 0 )); then 
-                             # If wc -m worked, truncation is needed, otherwise this might be wrong
-                             # For simplicity now, let's avoid truncation unless wc -m is reliable
+                         elif (( padding_needed < 0 )); then
+                             # Truncate only if wc -m is reliable
                              if command -v wc &> /dev/null && echo "test" | wc -m &> /dev/null; then
-                                 glyph_segment="${glyph_segment:0:$sample_glyph_width}" # Truncate based on character count (requires UTF-8 locale)
-                                 echo "WARN (render_nxn loop): Glyph too long, truncated to $sample_glyph_width characters." >> "$DEBUG_LOG_FILE"
+                                  glyph_segment="${glyph_segment:0:$sample_glyph_width}" # Truncate based on character count
+                                  echo "WARN (render_nxn loop): Glyph too long, truncated to $sample_glyph_width characters." >&2
                              fi
-                             # If no reliable wc -m, we risk keeping it too long if glyph definition is wrong
+                             # If no reliable wc -m, risk keeping it too long
                          fi
                          # No change if padding_needed is 0
-                         
-                         echo "DEBUG (render_nxn loop): key=$key, tile_name='$tile_name', ty=$ty, AFTER PADDING glyph_segment='${glyph_segment}'" >> "$DEBUG_LOG_FILE"
-                         # --- End Padding Modification ---
                     fi
                 else
-                    glyph_segment="$placeholder_uncol" 
+                    # Cell is not collapsed
+                    glyph_segment="$placeholder_uncol"
                 fi
-                
-                # Only add a separator if this is not the last column
+
+                # Add glyph segment to the current line
+                # Add a separator space if this is not the last column in the active region
                 if ((x < max_x)); then
-                    current_line+="${glyph_segment} " # Add space after non-last tiles
+                    current_line+="${glyph_segment} "
                 else
                     current_line+="${glyph_segment}" # No space after last tile
                 fi
-
-                # Add logging when grid2-shapes.sh is active and cell is collapsed
-                if [[ "$ALGO_FILE" == "grid2-shapes.sh" && "$collapsed_status" == "1" ]]; then
-                    local top_glyph="${TILE_TOPS[$tile_name]:-MISSING}"
-                    local bot_glyph="${TILE_BOTS[$tile_name]:-MISSING}"
-                    echo "DEBUG (render_nxn shapes): key=$key, name='$tile_name', top='$top_glyph', bot='$bot_glyph', final_segment='$glyph_segment'" >> "$DEBUG_LOG_FILE"
-                fi
             done
-            # --- LOG FINAL LINE FOR THIS TILE ROW ---
-            echo "DEBUG (render_nxn build loop): Adding line for ty=$ty: '$current_line'" >> "$DEBUG_LOG_FILE"
-            grid_lines_nxn+=("$current_line") 
+            # Add the completed line for this tile-row (ty) to the output array
+            grid_lines_nxn+=("$current_line")
         done
     done
-    
-    echo "DEBUG (render_nxn): Built ${#grid_lines_nxn[@]} lines for active region" >> "$DEBUG_LOG_FILE"
-    return 0 # Indicate success
+
+    return 0
 }
 
+# Function to build the text lines for the side/info panel
 _build_text_lines() {
-    text_lines=() # Clear global array
+    text_lines=()
     local tile_w=${ALGO_TILE_WIDTH:-1}
     local tile_h=${ALGO_TILE_HEIGHT:-1}
-    text_lines+=("WFC Engine - $(date +%H:%M:%S)"); text_lines+=("----------------------------------------")
-    text_lines+=("Algorithm: ${ALGO_FILE} [$((CURRENT_ALGO_INDEX+1))/${#ALGO_FILES[@]}] (${tile_w}x${tile_h})")
-    text_lines+=("Status: $([[ $RUNNING -eq 1 ]] && echo "Running" || echo "Paused")"); text_lines+=("Message: $STATUS_MESSAGE"); text_lines+=("----------------------------------------")
-    if [[ ${#PAGES[@]} -gt 0 ]]; then
-        text_lines+=("PAGE $((CURRENT_PAGE+1))/${#PAGES[@]}");
-        text_lines+=("----------------------------------------");
-        IFS=$'\n' read -d '' -ra content_lines <<< "${PAGES[$CURRENT_PAGE]}";
-        for line in "${content_lines[@]}"; do
-            text_lines+=("$line");
-        done;
-        text_lines+=("----------------------------------------");
-    else
-        text_lines+=("NO DOC PAGES FOUND");
-        text_lines+=("");
-        text_lines+=("----------------------------------------");
-    fi
-    local collapsed_count=0;
-    for k in "${!collapsed[@]}"; do
-        [[ "${collapsed[$k]}" == "1" ]] && ((collapsed_count++));
-    done;
-    text_lines+=("Collapsed: $collapsed_count / $((ROWS*COLS))");
+
+    text_lines+=("WFC Engine - $(date +%H:%M:%S)")
     text_lines+=("----------------------------------------")
-    text_lines+=("Controls:");
-    text_lines+=("[s] Start/Stop | [c] Step");
-    text_lines+=("[n] Next Page  | [p] Prev Page");
+    text_lines+=("Algorithm: ${ALGO_FILE} [$((CURRENT_ALGO_INDEX+1))/${#ALGO_FILES[@]}] (${tile_w}x${tile_h})")
+    text_lines+=("Status: $([[ $RUNNING -eq 1 ]] && echo "Running" || echo "Paused")")
+    text_lines+=("Message: $STATUS_MESSAGE")
+    text_lines+=("----------------------------------------")
+
+    if [[ ${#PAGES[@]} -gt 0 ]]; then
+        text_lines+=("PAGE $((CURRENT_PAGE+1))/${#PAGES[@]}")
+        text_lines+=("----------------------------------------")
+        local content_lines=()
+        IFS=$'\n' read -d '' -ra content_lines <<< "${PAGES[$CURRENT_PAGE]}"
+        for line in "${content_lines[@]}"; do
+            text_lines+=("$line")
+        done
+        text_lines+=("----------------------------------------")
+    else
+        text_lines+=("NO DOC PAGES FOUND")
+        text_lines+=("") # Keep spacing consistent
+        text_lines+=("----------------------------------------")
+    fi
+
+    local collapsed_count=0
+    for k in "${!collapsed[@]}"; do
+        if [[ "${collapsed[$k]}" == "1" ]]; then
+            ((collapsed_count++))
+        fi
+    done
+    text_lines+=("Collapsed: $collapsed_count / $((ROWS*COLS))")
+    text_lines+=("----------------------------------------")
+    text_lines+=("Controls:")
+    text_lines+=("[s] Start/Stop | [c] Step")
+    text_lines+=("[n] Next Page  | [p] Prev Page")
     text_lines+=("[1-${#ALGO_FILES[@]}] Select Algorithm | [f] Full Screen | [e] Empty View | [q] Quit")
 }
 
 # --- Main Rendering Functions ---
 
-render_small() { # Side-by-side mode
+# Renders grid and text panel side-by-side (small mode)
+render_small() {
     _build_grid_lines_1x1
     _build_text_lines
 
-    echo "DEBUG (render): Using SIDE-BY-SIDE mode." >> "$DEBUG_LOG_FILE"
-    local term_cols=$(tput cols)
-    local desired_text_width=40
-    local panel_spacing_str="   " # 3 spaces
+    local term_cols
+    term_cols=$(tput cols)
+    local grid_width=$COLS
+    local text_panel_width=40  # Fixed width for right-side panel
+    local spacing="   "        # Spacing between grid and panel
+    local spacing_width=${#spacing}
 
-    # Calculate available width for the text panel
-    local max_text_width=$(( term_cols - COLS - ${#panel_spacing_str} ))
-    [[ $max_text_width -lt 0 ]] && max_text_width=0
-    local actual_text_width=$(( desired_text_width < max_text_width ? desired_text_width : max_text_width ))
-    [[ $actual_text_width -lt 0 ]] && actual_text_width=0
+    # Determine max number of visible lines from both sections
+    local max_lines=${#grid_lines_1x1[@]}
+    if (( ${#text_lines[@]} > max_lines )); then
+        max_lines=${#text_lines[@]}
+    fi
 
-    local max_rows=$(( ${#grid_lines_1x1[@]} > ${#text_lines[@]} ? ${#grid_lines_1x1[@]} : ${#text_lines[@]} ))
+    local output=""
+    for ((i = 0; i < max_lines; i++)); do
+        local grid_line="${grid_lines_1x1[i]}"
+        local text_line="${text_lines[i]}"
 
-    for ((i=0; i<max_rows; i++)); do
-        local line_str="${grid_lines_1x1[$i]}${panel_spacing_str}${text_lines[$i]:0:$actual_text_width}"
-        printf "%b\n" "$line_str"
+        # Fill missing lines with empty strings or pad existing ones
+        [[ -z "$grid_line" ]] && grid_line="$(printf "%${grid_width}s" "")"
+        [[ -z "$text_line" ]] && text_line=""
+
+        # Format the text panel line (pad/truncate)
+        local formatted_text=""
+        printf -v formatted_text "%-${text_panel_width}.${text_panel_width}s" "$text_line"
+
+        # Append the combined line to the output buffer
+        output+="$grid_line$spacing$formatted_text"$'\n'
     done
+
+    # Print the complete buffer
+    printf "%s" "$output"
 }
 
-render_large() { # Full screen mode
+# Renders the grid centered in the terminal (large/full screen mode)
+render_large() {
     local tile_w=${ALGO_TILE_WIDTH:-1}
     local tile_h=${ALGO_TILE_HEIGHT:-1}
     local buffer=""
     local use_nxn=0
 
-    echo "DEBUG (render_large): Using FULL SCREEN mode. Algo Tile Size: ${tile_w}x${tile_h}" >> "$DEBUG_LOG_FILE"
     local grid_display_height=$ROWS
     local grid_char_width=$COLS
 
-    # Determine mode and build lines
+    # Determine mode (1x1 or NxN) and build appropriate lines
     if (( tile_w > 1 || tile_h > 1 )); then
         if _build_grid_lines_nxn; then
-            echo "DEBUG (render_large): NxN Build SUCCESS. Will use grid_lines_nxn directly." >> "$DEBUG_LOG_FILE"
-            
-            # Get the dimensions from the actual array
+            # NxN build successful
             if [[ ${#grid_lines_nxn[@]} -gt 0 ]]; then
                 grid_display_height=${#grid_lines_nxn[@]}
-                # Find the max line width from the actual lines
+                # Find the max line width from the actual generated lines
                 grid_char_width=0
                 for ((i=0; i<${#grid_lines_nxn[@]}; i++)); do
                     local line_len=${#grid_lines_nxn[$i]}
                     (( line_len > grid_char_width )) && grid_char_width=$line_len
                 done
             else
+                # Fallback if NxN array is empty after build (shouldn't happen if successful)
                 grid_display_height=$(( ROWS * tile_h ))
-                local estimated_tile_width=8 # 7 for glyph + 1 for space
+                local estimated_tile_width=8 # 7 glyph + 1 space (approx)
                 grid_char_width=$(( (COLS * estimated_tile_width) - 1 )) # subtract 1 for last column no space
             fi
-            
-            echo "DEBUG (render_large): Actual NxN grid dimensions: ${grid_char_width}w x ${grid_display_height}h" >> "$DEBUG_LOG_FILE"
             use_nxn=1
         else
-             echo "WARN (render_large): NxN Build FAILED. Falling back to 1x1." >> "$DEBUG_LOG_FILE"
+             # NxN build failed, fall back to 1x1
+             echo "WARN (render_large): NxN Build FAILED. Falling back to 1x1." >&2
              _build_grid_lines_1x1
              grid_display_height=$ROWS
              grid_char_width=$COLS
              use_nxn=0
         fi
     else
+        # Algorithm uses 1x1 tiles
         _build_grid_lines_1x1
-        echo "DEBUG (render_large): Using 1x1 lines for full screen." >> "$DEBUG_LOG_FILE"
         grid_display_height=$ROWS
         grid_char_width=$COLS
         use_nxn=0
@@ -476,70 +469,60 @@ render_large() { # Full screen mode
     # Get current terminal dimensions
     local term_rows=$(tput lines)
     local term_cols=$(tput cols)
-    
+
     # Prevent grid_char_width from exceeding terminal width
     if [[ $grid_char_width -gt $term_cols ]]; then
-        echo "DEBUG (render_large): Truncating grid width to fit terminal (${grid_char_width} -> ${term_cols})" >> "$DEBUG_LOG_FILE"
         grid_char_width=$term_cols
     fi
-    
+
+    # Calculate centering offsets
     local row_offset=$(( (term_rows - grid_display_height) / 2 ))
     local col_offset=$(( (term_cols - grid_char_width) / 2 ))
     [[ $row_offset -lt 0 ]] && row_offset=0
     [[ $col_offset -lt 0 ]] && col_offset=0
-    
-    echo "DEBUG (render_large): Centering calculation: Terminal=${term_cols}x${term_rows}, Grid=${grid_char_width}x${grid_display_height}, Offset=${col_offset}x${row_offset}" >> "$DEBUG_LOG_FILE"
 
-    # Build the output buffer - START at offset position
+    # Start buffer with positioning command
     buffer+=$(printf "\033[$((row_offset + 1));$((col_offset + 1))H")
 
     # Render lines based on which array type we're using
     if [[ $use_nxn -eq 1 ]]; then
         # --- NxN Array Rendering ---
-        echo "DEBUG (render_large): Rendering NxN grid with ${#grid_lines_nxn[@]} lines" >> "$DEBUG_LOG_FILE"
         if [[ ${#grid_lines_nxn[@]} -eq 0 ]]; then
             buffer+=$(printf "%s" "Error: NxN grid lines array is empty")
         else
-            # Max width available on screen for this centered block
-            # This is the effective width we want to pad/truncate to.
-            local display_width=$grid_char_width 
-            local max_screen_width_for_line=$(( term_cols - col_offset -1 ))
+            # Determine the final width for padding/truncation on screen
+            local display_width=$grid_char_width
+            local max_screen_width_for_line=$(( term_cols - col_offset - 1 )) # Available width from offset
              [[ $max_screen_width_for_line -lt 0 ]] && max_screen_width_for_line=0
-             
-            # Use the smaller of the grid's calculated width or the available screen width
+
+             # Use the smaller of the grid's calculated width or the available screen width
              if [[ $display_width -gt $max_screen_width_for_line ]]; then
                  display_width=$max_screen_width_for_line
              fi
-             echo "DEBUG (render_large NxN loop): Final display_width for padding/truncation: $display_width" >> "$DEBUG_LOG_FILE"
-
 
             for ((i=0; i<${#grid_lines_nxn[@]}; i++)); do
                 local line_content="${grid_lines_nxn[$i]}"
-                line_content=${line_content//$'\n'/ } # Sanitize
-
-                # --- LOG LINE BEING RENDERED ---
-                echo "DEBUG (render_large NxN render loop): Rendering line i=$i: '$line_content'" >> "$DEBUG_LOG_FILE"
+                line_content=${line_content//$'\n'/ } # Sanitize potential newlines
 
                 # Pad/truncate the line to the final display_width
                 local final_line=""
                 printf -v final_line "%-${display_width}.${display_width}s" "$line_content"
 
+                # Add formatted line and positioning for the next line
                 buffer+=$(printf "%s\033[$((row_offset + i + 2));$((col_offset + 1))H" "$final_line")
             done
         fi
     else
         # --- 1x1 Array Rendering ---
-        echo "DEBUG (render_large): Rendering 1x1 grid with ${#grid_lines_1x1[@]} lines" >> "$DEBUG_LOG_FILE"
         if [[ ${#grid_lines_1x1[@]} -eq 0 ]]; then
             buffer+=$(printf "%s" "Error: 1x1 grid lines array is empty")
         else
             for ((i=0; i<${#grid_lines_1x1[@]}; i++)); do
-                # DIRECTLY access the 1x1 array, no nameref
                 local line_content="${grid_lines_1x1[$i]}"
-                # Sanitize and use without padding
-                line_content=${line_content//$'\n'/ }
-                
-                # Add the line content and position for next line
+                line_content=${line_content//$'\n'/ } # Sanitize
+
+                # Add the line content and positioning for the next line
+                # No extra padding/truncation here, assumes 1 char per grid cell
                 buffer+=$(printf "%s\033[$((row_offset + i + 2));$((col_offset + 1))H" "$line_content")
             done
         fi
@@ -552,162 +535,185 @@ render_large() { # Full screen mode
 # --- Main Render Dispatcher ---
 render() {
     local output_buffer=""
+
+    # Call the appropriate render function based on mode
     if [[ $FULL_SCREEN -eq 1 ]]; then
         output_buffer=$(render_large) # Capture output from function
     else
         output_buffer=$(render_small) # Capture output from function
     fi
+
     # Clear screen THEN print the entire buffer at once
     # Use %b to interpret potential \n sequences from render_small
     printf "\033[H\033[J%b" "$output_buffer"
 }
 
-# --- Main Loop ---
+# --- Main Application Loop ---
 main() {
+    log_event "Engine started"
+
     # Initial load of the default algorithm
     load_and_init_algorithm $CURRENT_ALGO_INDEX
     if [[ $? -ne 0 ]]; then
-        # Handle case where initial default algo failed to load
-        echo "Error loading initial algorithm ${ALGO_FILES[$CURRENT_ALGO_INDEX]}. Exiting."
+        echo "Error loading initial algorithm ${ALGO_FILES[$CURRENT_ALGO_INDEX]}. Exiting." >&2
+        # Trap will handle cleanup
         exit 1
     fi
 
     # Setup terminal
-    tput civis  # Hide cursor
-    # clear # Don't clear here, render will do it
+    tput civis # Hide cursor
 
     # Main loop
     while [[ $SHOULD_EXIT -eq 0 ]]; do
 
-        local key_pressed=0 # Flag to check if input was received
+        local key_pressed=0 # Flag to check if input requiring render was received this cycle
 
-        # Process algorithm if running
+        # Process algorithm step if running
         if [[ $RUNNING -eq 1 ]]; then
-            # Ensure update_algorithm function exists before calling
             if declare -F update_algorithm &>/dev/null; then
-                # echo "DEBUG (main loop): Calling update_algorithm for ${ALGO_FILE}" >> "$DEBUG_LOG_FILE"
-                update_algorithm # Modifies STATUS_MESSAGE globally
+                update_algorithm # Algorithm modifies STATUS_MESSAGE etc.
                 local exit_code=$?
-                # echo "DEBUG (main loop): ${ALGO_FILE} finished with exit code $exit_code" >> "$DEBUG_LOG_FILE"
+                # Stop running if algorithm returns non-zero (e.g., finished, error)
                 if [[ $exit_code -ne 0 ]]; then
-                     RUNNING=0 # Stop running if algorithm returns non-zero
+                     RUNNING=0
+                     log_event "Algorithm ${ALGO_FILE} finished or signaled stop (code $exit_code). Pausing."
                 fi
             else
                  STATUS_MESSAGE="Error: update_algorithm not found in ${ALGO_FILE}"
-                 echo "ERROR: update_algorithm not found in ${ALGO_FILE}" >> "$DEBUG_LOG_FILE"
+                 echo "ERROR: update_algorithm not found in ${ALGO_FILE}" >&2
                  RUNNING=0 # Stop if function missing
             fi
             # Render immediately after processing when running
             render
         fi # End if running
 
-        # Check for input regardless of running state
-        read -s -n 1 -t 0.01 key # Short timeout allows responsiveness
+        # Check for user input (short timeout for responsiveness)
+        read -s -n 1 -t 0.01 key
         if [[ -n "$key" ]]; then
              key_pressed=1 # Mark that input was received
+
              case "$key" in
                  [1-9]) # Handle number input for algorithm selection
-                     local selected_index=$((key - 1)) # Convert key '1' to index 0, etc.
-                     if [[ "$selected_index" -lt "${#ALGO_FILES[@]}" && "$selected_index" -ne "$CURRENT_ALGO_INDEX" ]]; then
-                          echo "DEBUG (input): Switching to algorithm index $selected_index" >> "$DEBUG_LOG_FILE"
+                      local selected_index=$((key - 1)) # Convert key '1' to index 0, etc.
+                      if [[ "$selected_index" -lt "${#ALGO_FILES[@]}" && "$selected_index" -ne "$CURRENT_ALGO_INDEX" ]]; then
+                          # Valid index and different from current
                           load_and_init_algorithm "$selected_index"
-                          # Re-render needed after loading new algo
-                     elif [[ "$selected_index" -ge "${#ALGO_FILES[@]}" ]]; then
+                          # Re-render needed after loading new algo (handled below if paused)
+                      elif [[ "$selected_index" -ge "${#ALGO_FILES[@]}" ]]; then
+                          # Invalid index (too high)
                           STATUS_MESSAGE="Invalid algorithm number: $key"
-                          echo "WARN (input): Invalid algorithm number $key" >> "$DEBUG_LOG_FILE"
+                          echo "WARN (input): Invalid algorithm number $key" >&2
                           # Re-render needed to show status message
-                     else
+                      else
+                          # Same algorithm selected or other issue
                           key_pressed=0 # No change occurred, don't re-render if paused
-                     fi
-                     ;;
+                      fi
+                      ;;
+
                  s) # Start/Stop
-                     RUNNING=$((1-RUNNING))
-                     if [[ $RUNNING -eq 1 ]]; then STATUS_MESSAGE="Running..."; else STATUS_MESSAGE="Paused"; fi
-                     echo "DEBUG (input): Toggled running state to $RUNNING" >> "$DEBUG_LOG_FILE"
-                     # Re-render needed to show status update
-                     ;;
+                      RUNNING=$((1-RUNNING))
+                      if [[ $RUNNING -eq 1 ]]; then
+                           STATUS_MESSAGE="Running..."
+                      else
+                           STATUS_MESSAGE="Paused"
+                      fi
+                      log_event "Toggled running state to $RUNNING"
+                      # Re-render needed to show status update
+                      ;;
+
                  c) # Step (Collapse One)
-                     if declare -F update_algorithm > /dev/null; then
-                         if [[ $RUNNING -eq 0 ]]; then # Only allow step if paused
-                             echo "DEBUG (input): Manual step requested for ${ALGO_FILE}" >> "$DEBUG_LOG_FILE"
-                             update_algorithm
-                             local exit_code=$?
-                             if [[ $exit_code -ne 0 ]]; then RUNNING=0; fi # Stop if it finishes/errors
-                             echo "DEBUG (input): Manual step finished for ${ALGO_FILE} (code $exit_code)" >> "$DEBUG_LOG_FILE"
-                             # Re-render needed after step
-                         else
-                             STATUS_MESSAGE="Pause ([s]) before stepping ([c])"
-                             # Re-render needed to show status message
-                         fi
-                     else
-                         STATUS_MESSAGE="Error: update_algorithm not found"
-                         echo "ERROR: update_algorithm not found (manual step)" >> "$DEBUG_LOG_FILE"
-                         # Re-render needed to show error
-                     fi
-                     ;;
+                      if declare -F update_algorithm > /dev/null; then
+                          if [[ $RUNNING -eq 0 ]]; then # Only allow step if paused
+                              log_event "Manual step requested for ${ALGO_FILE}"
+                              update_algorithm
+                              local exit_code=$?
+                              if [[ $exit_code -ne 0 ]]; then
+                                  RUNNING=0 # Keep paused if it finishes/errors
+                                  log_event "Manual step finished for ${ALGO_FILE}, algorithm signaled stop (code $exit_code)"
+                              else
+                                   log_event "Manual step finished for ${ALGO_FILE} (code $exit_code)"
+                              fi
+                              # Re-render needed after step
+                          else
+                              STATUS_MESSAGE="Pause ([s]) before stepping ([c])"
+                              # Re-render needed to show status message
+                          fi
+                      else
+                          STATUS_MESSAGE="Error: update_algorithm not found"
+                          echo "ERROR: update_algorithm not found (manual step)" >&2
+                          # Re-render needed to show error
+                      fi
+                      ;;
+
                  n) # Next Page
-                     if [[ ${#PAGES[@]} -gt 0 ]]; then
-                         local old_page=$CURRENT_PAGE
-                         CURRENT_PAGE=$(( (CURRENT_PAGE + 1) % ${#PAGES[@]} ))
-                         if [[ $old_page != $CURRENT_PAGE ]]; then
-                            STATUS_MESSAGE="Page $((CURRENT_PAGE+1))/${#PAGES[@]}"
-                            echo "DEBUG (input): Changed to page $CURRENT_PAGE" >> "$DEBUG_LOG_FILE"
-                            # ADD CHECK FOR grid2-shapes.sh HERE
-                            if [[ "$ALGO_FILE" == "ca.sh" || "$ALGO_FILE" == "grid2-shapes.sh" ]] && declare -F init_grid &>/dev/null; then
-                                echo "DEBUG (input): Re-initializing $ALGO_FILE grid for new page $CURRENT_PAGE" >> "$DEBUG_LOG_FILE"
-                                init_grid # Call init_grid, it reads global CURRENT_PAGE
-                            fi
-                         else
-                             key_pressed=0 # Page didn't change (e.g., only 1 page)
-                         fi
-                     else
-                         STATUS_MESSAGE="No pages available"
-                         echo "DEBUG (input): No pages to navigate (next)" >> "$DEBUG_LOG_FILE"
-                         # Re-render needed to show status
-                     fi
-                     ;;
-                 p) # Previous Page
                       if [[ ${#PAGES[@]} -gt 0 ]]; then
-                         local old_page=$CURRENT_PAGE
-                         CURRENT_PAGE=$(( (CURRENT_PAGE - 1 + ${#PAGES[@]}) % ${#PAGES[@]} ))
-                         if [[ $old_page != $CURRENT_PAGE ]]; then
-                            STATUS_MESSAGE="Page $((CURRENT_PAGE+1))/${#PAGES[@]}"
-                            echo "DEBUG (input): Changed to page $CURRENT_PAGE" >> "$DEBUG_LOG_FILE"
-                            # ADD CHECK FOR grid2-shapes.sh HERE
-                            if [[ "$ALGO_FILE" == "ca.sh" || "$ALGO_FILE" == "grid2-shapes.sh" ]] && declare -F init_grid &>/dev/null; then
-                                echo "DEBUG (input): Re-initializing $ALGO_FILE grid for new page $CURRENT_PAGE" >> "$DEBUG_LOG_FILE"
-                                init_grid # Call init_grid, it reads global CURRENT_PAGE
-                            fi
-                         else
-                            key_pressed=0 # Page didn't change
-                         fi
-                     else
-                         STATUS_MESSAGE="No pages available"
-                         echo "DEBUG (input): No pages to navigate (prev)" >> "$DEBUG_LOG_FILE"
-                         # Re-render needed to show status
-                     fi
-                     ;;
-                 q)
-                     echo "DEBUG (input): Quit key pressed." >> "$DEBUG_LOG_FILE"
-                     SHOULD_EXIT=1
-                     key_pressed=1 # Ensure render happens if paused
-                     ;;
+                          local old_page=$CURRENT_PAGE
+                          CURRENT_PAGE=$(( (CURRENT_PAGE + 1) % ${#PAGES[@]} ))
+                          if [[ $old_page != $CURRENT_PAGE ]]; then
+                              STATUS_MESSAGE="Page $((CURRENT_PAGE+1))/${#PAGES[@]}"
+                              log_event "Changed to page $CURRENT_PAGE"
+                              # Re-initialize grid if needed by specific algorithms
+                              if [[ "$ALGO_FILE" == "ca.sh" || "$ALGO_FILE" == "grid2-shapes.sh" ]] && declare -F init_grid &>/dev/null; then
+                                   log_event "Re-initializing $ALGO_FILE grid for new page $CURRENT_PAGE"
+                                   init_grid # Call init_grid, it reads global CURRENT_PAGE
+                              fi
+                          else
+                              key_pressed=0 # Page didn't change (e.g., only 1 page)
+                          fi
+                      else
+                          STATUS_MESSAGE="No pages available"
+                          # Re-render needed to show status
+                      fi
+                      ;;
+
+                 p) # Previous Page
+                       if [[ ${#PAGES[@]} -gt 0 ]]; then
+                          local old_page=$CURRENT_PAGE
+                          CURRENT_PAGE=$(( (CURRENT_PAGE - 1 + ${#PAGES[@]}) % ${#PAGES[@]} ))
+                          if [[ $old_page != $CURRENT_PAGE ]]; then
+                              STATUS_MESSAGE="Page $((CURRENT_PAGE+1))/${#PAGES[@]}"
+                              log_event "Changed to page $CURRENT_PAGE"
+                              # Re-initialize grid if needed by specific algorithms
+                              if [[ "$ALGO_FILE" == "ca.sh" || "$ALGO_FILE" == "grid2-shapes.sh" ]] && declare -F init_grid &>/dev/null; then
+                                   log_event "Re-initializing $ALGO_FILE grid for new page $CURRENT_PAGE"
+                                   init_grid # Call init_grid, it reads global CURRENT_PAGE
+                              fi
+                          else
+                              key_pressed=0 # Page didn't change
+                          fi
+                      else
+                          STATUS_MESSAGE="No pages available"
+                          # Re-render needed to show status
+                      fi
+                      ;;
+
+                 q) # Quit
+                      log_event "Quit key pressed."
+                      SHOULD_EXIT=1
+                      key_pressed=1 # Ensure render happens if paused? Not really needed, trap handles exit.
+                      ;;
+
                  f) # Toggle full screen mode
-                     FULL_SCREEN=$((1-FULL_SCREEN))
-                     STATUS_MESSAGE="Full screen mode: $([[ $FULL_SCREEN -eq 1 ]] && echo "ON" || echo "OFF")"
-                     echo "DEBUG (input): Toggled full screen mode to $FULL_SCREEN" >> "$DEBUG_LOG_FILE"
-                     ;;
+                      FULL_SCREEN=$((1-FULL_SCREEN))
+                      STATUS_MESSAGE="Full screen mode: $([[ $FULL_SCREEN -eq 1 ]] && echo "ON" || echo "OFF")"
+                      log_event "Toggled full screen mode to $FULL_SCREEN"
+                      ;;
+
                  e) # Toggle empty display mode
-                     EMPTY_DISPLAY=$((1-EMPTY_DISPLAY))
-                     STATUS_MESSAGE="Empty display mode: $([[ $EMPTY_DISPLAY -eq 1 ]] && echo "ON" || echo "OFF")"
-                     echo "DEBUG (input): Toggled empty display mode to $EMPTY_DISPLAY" >> "$DEBUG_LOG_FILE"
-                     ;;
-                 r)
-                     echo "DEBUG (input): Generating charset and color report." >> "$DEBUG_LOG_FILE"
-                     generate_charset_and_color_report > charset_color_report.txt
-                     STATUS_MESSAGE="Charset and color report saved to charset_color_report.txt"
-                     ;;
-                 *) key_pressed=0 ;; # Unrecognized key, don't re-render if paused
+                      EMPTY_DISPLAY=$((1-EMPTY_DISPLAY))
+                      STATUS_MESSAGE="Empty display mode: $([[ $EMPTY_DISPLAY -eq 1 ]] && echo "ON" || echo "OFF")"
+                      log_event "Toggled empty display mode to $EMPTY_DISPLAY"
+                      ;;
+
+                 r) # Generate report (kept functionality)
+                      log_event "Generating charset and color report."
+                      generate_charset_and_color_report > charset_color_report.txt
+                      STATUS_MESSAGE="Charset and color report saved to charset_color_report.txt"
+                      ;;
+
+                 *) # Unrecognized key
+                      key_pressed=0 # Don't re-render if paused
+                      ;;
              esac
         fi # End if key pressed
 
@@ -716,57 +722,64 @@ main() {
              render
         fi
 
-        # Loop exit condition
-        if [[ $SHOULD_EXIT -eq 1 ]]; then break; fi
+        # Loop exit condition check (redundant due to while condition, but explicit)
+        if [[ $SHOULD_EXIT -eq 1 ]]; then
+            break
+        fi
 
         # If paused and no key was pressed, the loop naturally continues
         # after the read timeout without processing or rendering.
 
     done # End main loop
 
-    # Clean up terminal
-    tput cnorm  # Show cursor
-    clear
-    echo "Goodbye!"
+    # Cleanup is handled by the trap on EXIT
 }
 
-# Clean up on exit
-trap 'tput cnorm; clear; exit' INT TERM EXIT
-
-# Start the engine
-main
-
+# Optional: Function to generate report
 generate_charset_and_color_report() {
     echo "Charset and Color Report"
     echo "------------------------"
-    # Collect unique symbols
+
     declare -A unique_symbols
     for value in "${grid[@]}"; do
         unique_symbols["$value"]=1
     done
+
     echo "Symbols used:"
     for symbol in "${!unique_symbols[@]}"; do
         echo -e "'$symbol'"
     done
+    echo "" # Add spacing
 
-    # Collect unique colors
     declare -A unique_colors
-    for color in "${cell_colors[@]}"; do
-        unique_colors["$color"]=1
-    done
-    echo "Colors used:"
-    for color_id in "${!unique_colors[@]}"; do
-        case "$color_id" in
-            "alive")
-                echo -e "$(color_char "$COLOR_ALIVE_FG" "$COLOR_ALIVE_BG" " ALIVE ")"
-                ;;
-            "dead")
-                echo -e "$(color_char "$COLOR_DEAD_FG" "$COLOR_DEAD_BG" " DEAD ")"
-                ;;
-            *)
-                echo "Unknown color ID: $color_id"
-                ;;
-        esac
-    done
+    # Assuming cell_colors might be defined by algorithms
+    if declare -p cell_colors &>/dev/null && [[ "$(declare -p cell_colors)" == "declare -A"* ]]; then
+        for color in "${cell_colors[@]}"; do
+            unique_colors["$color"]=1
+        done
+
+        echo "Colors used:"
+        for color_id in "${!unique_colors[@]}"; do
+            # Attempt to use color_char if available
+            if declare -F color_char &> /dev/null; then
+                 local fg_var="COLOR_${color_id^^}_FG"
+                 local bg_var="COLOR_${color_id^^}_BG"
+                 local fg_val="${!fg_var:-?}" # Get FG value or ?
+                 local bg_val="${!bg_var:-?}" # Get BG value or ?
+
+                 if [[ "$fg_val" != "?" && "$bg_val" != "?" ]]; then
+                      echo -e "$(color_char "$fg_val" "$bg_val" " $color_id ") (FG:$fg_val BG:$bg_val)"
+                 else
+                      echo "Color ID: $color_id (Variable mapping COLOR_${color_id^^}_FG/BG not found)"
+                 fi
+            else
+                 echo "Color ID: $color_id ('color_char' function not available)"
+            fi
+        done
+    else
+         echo "Color information (cell_colors map) not available."
+    fi
 }
 
+# --- Start the engine ---
+main
