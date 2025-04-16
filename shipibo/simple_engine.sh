@@ -196,38 +196,6 @@ _build_grid_lines_1x1() {
     # echo "DEBUG (_build_grid_lines_1x1): Finished building 1x1 lines. First line: '${grid_lines_1x1[0]}'" >> "$DEBUG_LOG_FILE"
 }
 
-_build_grid_lines_1x1_FUCKED() {
-    grid_lines_1x1=()
-    echo "DEBUG (_build_grid_lines_1x1): Building grid lines for 1x1 display." >> "$DEBUG_LOG_FILE"
-    for ((row=0; row<ROWS; row++)); do
-        local line=""
-        for ((col=0; col<COLS; col++)); do
-            local key="$row,$col"
-            local cell_char="${grid[$key]}"
-            local display_char="$cell_char"
-            # Handle uninitialized or empty cells
-            if [[ -z "$cell_char" ]] || [[ "$cell_char" == ' ' ]]; then
-                display_char="·"  # Placeholder for uncollapsed cells
-            else
-                # Apply colors if the cell is collapsed and colors are defined
-                local color_id="${cell_colors[$key]}"
-                if declare -F color_char &>/dev/null && [[ -n "$color_id" ]]; then
-                    if [[ "$color_id" == "1" ]]; then
-                        display_char="$(color_char "$COLOR1_FG" "$COLOR1_BG" "$cell_char")"
-                    elif [[ "$color_id" == "2" ]]; then
-                        display_char="$(color_char "$COLOR2_FG" "$COLOR2_BG" "$cell_char")"
-                    else
-                        # Default to no color if color_id is unexpected
-                        display_char="$cell_char"
-                    fi
-                fi
-            fi
-            line+="$display_char"
-        done
-        grid_lines_1x1+=("$line")
-    done
-}
-
 _build_grid_lines_nxn() {
     grid_lines_nxn=() # Clear global array
     local current_error_symbol="${ERROR_SYMBOL:-?}"
@@ -408,9 +376,29 @@ _build_text_lines() {
     text_lines+=("WFC Engine - $(date +%H:%M:%S)"); text_lines+=("----------------------------------------")
     text_lines+=("Algorithm: ${ALGO_FILE} [$((CURRENT_ALGO_INDEX+1))/${#ALGO_FILES[@]}] (${tile_w}x${tile_h})")
     text_lines+=("Status: $([[ $RUNNING -eq 1 ]] && echo "Running" || echo "Paused")"); text_lines+=("Message: $STATUS_MESSAGE"); text_lines+=("----------------------------------------")
-    if [[ ${#PAGES[@]} -gt 0 ]]; then text_lines+=("PAGE $((CURRENT_PAGE+1))/${#PAGES[@]}"); text_lines+=("----------------------------------------"); IFS=$'\n' read -d '' -ra content_lines <<< "${PAGES[$CURRENT_PAGE]}"; for line in "${content_lines[@]}"; do text_lines+=("$line"); done; text_lines+=("----------------------------------------"); else text_lines+=("NO DOC PAGES FOUND"); text_lines+=("----------------------------------------"); fi
-    local collapsed_count=0; for k in "${!collapsed[@]}"; do [[ "${collapsed[$k]}" == "1" ]] && ((collapsed_count++)); done; text_lines+=("Collapsed: $collapsed_count / $((ROWS*COLS))"); text_lines+=("----------------------------------------")
-    text_lines+=("Controls:"); text_lines+=("[s] Start/Stop | [c] Step"); text_lines+=("[n] Next Page  | [p] Prev Page"); text_lines+=("[1-${#ALGO_FILES[@]}] Select Algorithm | [f] Full Screen | [e] Empty View | [q] Quit")
+    if [[ ${#PAGES[@]} -gt 0 ]]; then
+        text_lines+=("PAGE $((CURRENT_PAGE+1))/${#PAGES[@]}");
+        text_lines+=("----------------------------------------");
+        IFS=$'\n' read -d '' -ra content_lines <<< "${PAGES[$CURRENT_PAGE]}";
+        for line in "${content_lines[@]}"; do
+            text_lines+=("$line");
+        done;
+        text_lines+=("----------------------------------------");
+    else
+        text_lines+=("NO DOC PAGES FOUND");
+        text_lines+=("");
+        text_lines+=("----------------------------------------");
+    fi
+    local collapsed_count=0;
+    for k in "${!collapsed[@]}"; do
+        [[ "${collapsed[$k]}" == "1" ]] && ((collapsed_count++));
+    done;
+    text_lines+=("Collapsed: $collapsed_count / $((ROWS*COLS))");
+    text_lines+=("----------------------------------------")
+    text_lines+=("Controls:");
+    text_lines+=("[s] Start/Stop | [c] Step");
+    text_lines+=("[n] Next Page  | [p] Prev Page");
+    text_lines+=("[1-${#ALGO_FILES[@]}] Select Algorithm | [f] Full Screen | [e] Empty View | [q] Quit")
 }
 
 # --- Main Rendering Functions ---
