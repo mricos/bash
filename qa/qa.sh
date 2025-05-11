@@ -1,6 +1,10 @@
 QA_SRC="$HOME/src/bash/qa/qa.sh"
 QA_DIR="$HOME/.qa"
 
+qqt() {
+    echo "[qa.sh qq DEBUG] Received stdin:" && cat && echo "[qa.sh qq DEBUG] End of stdin."
+    return 0
+}
 qq() { qa_query "$@"; }
 q1() { QA_ENGINE=gpt-3.5-turbo; qa_query "$@"; }
 q2() { QA_ENGINE=gpt-4-turbo; qa_query "$@"; }
@@ -75,25 +79,36 @@ qa_test(){
 
 qa_query(){
   q_gpt_query ${@}
-  QA_QUEUE+=($(a_last_id))
 }
 
 q_gpt_query ()
 {
+    set -x # Keep tracing for now, can remove later
+
     echo "Using $QA_ENGINE" >&2
     local api_endpoint="https://api.openai.com/v1/chat/completions"
     local db="$QA_DIR/db"
     local id=$(date +%s)
+    local input
+
+    # --- REVERTED INPUT HANDLING ---
     if [ ! -z "$1" ]; then
-        local input="$@"
+        echo "[qa.sh DEBUG] Reading input from command line arguments." >&2
+        input="$@"
     else
-        echo "Enter your query, press Ctrl-D when done:" >&2
-        local input=$(cat)  # Read entire input as-is 
-        echo "Processing your query..." >&2
+        # This will now read from stdin provided by Node's spawn
+        echo "[qa.sh DEBUG] Reading input from stdin." >&2
+        input=$(cat)
+        if [ $? -ne 0 ]; then
+             echo "[qa.sh ERROR] Failed reading from stdin." >&2
+             return 1
+        fi
+        echo "[qa.sh DEBUG] Finished reading from stdin." >&2
     fi
+    # --- END REVERTED INPUT HANDLING ---
 
     echo "$input" > "$db/$id.prompt"
-    input=$(_qa_sanitize_input "$input")
+    input=$(_qa_sanitize_input "$input") # Use the existing sanitize function
     local data
     data=$(jq -nc --arg model "$QA_ENGINE" \
                    --arg content "$input" \
@@ -132,8 +147,9 @@ q_gpt_query ()
     fi
 
     echo "$answer" > "$db/$id.answer"
-    [ ! -z "$1" ] && echo "$answer"       # show for single line questions
+    echo "$answer" # Always output the final answer to stdout
     
+    set +x # Disable command tracing before exiting
 } 
 
 qa_queue(){
@@ -370,3 +386,24 @@ fa_wip() {
   done
 }
 
+export -f qq
+export -f q1
+export -f q2
+export -f q3
+export -f q4
+export -f qa_query
+export -f a
+
+
+echo64() {
+    if [ $# -eq 0 ]; then
+        # Handle case where no arguments are given (maybe read stdin?)
+        # For now, just echo empty string or error
+        echo -n "" # Or echo "Error: echo64 requires arguments." >&2; return 1
+    else
+        # Concatenate all arguments and pipe to base64
+        # The -w 0 option prevents line wrapping in the base64 output
+        echo -n "$@" | base64 -w 0
+    fi
+}
+export -f echo64
