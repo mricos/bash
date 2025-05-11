@@ -17,7 +17,6 @@ QA_CONTEXT_FILE="$QA_DIR/context"
 OPENAI_API_FILE="$QA_DIR/api_key"
 
 SCRIPT_DIR=$(dirname "${BASH_SOURCE[0]}")
-source $SCRIPT_DIR/getcode.sh
 
 _qa_sanitize_index ()
 {
@@ -278,7 +277,29 @@ a_last_answer(){
     cat $(a_last_answer_file)
 }
 
-a() {
+a()
+{
+    # get the last answer
+
+    local db="$QA_DIR/db"
+    local files=($(ls $db/*.answer | sort -n))
+    local last=$((${#files[@]}-1))
+    local lastIndex=$((${#files[@]}-1))
+    local indexFromLast=$(_qa_sanitize_index $1)
+    local index=$(($lastIndex-$indexFromLast))
+    local file="${files[$index]}"
+    local id=$(basename $file .answer)
+    info="[QA/global/$((index+1))/${lastIndex}${file} ]"
+
+    printf "[$id: $(head -n 1 $db/$id.prompt | _truncate_middle )]"
+    printf "\n\n"
+    cat $file
+    printf "\n$info\n"
+
+}
+
+
+a_OLD() {
     local id file files info index lastIndex
     local N=${#QA_QUEUE[@]}
     local db=$QA_DIR/db
