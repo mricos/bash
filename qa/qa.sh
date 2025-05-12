@@ -82,7 +82,7 @@ qa_query(){
 
 q_gpt_query ()
 {
-    set -x # Keep tracing for now, can remove later
+    #set -x # Keep tracing for now, can remove later
 
     echo "Using $QA_ENGINE" >&2
     local api_endpoint="https://api.openai.com/v1/chat/completions"
@@ -148,7 +148,7 @@ q_gpt_query ()
     echo "$answer" > "$db/$id.answer"
     echo "$answer" # Always output the final answer to stdout
     
-    set +x # Disable command tracing before exiting
+    #set +x # Disable command tracing before exiting
 } 
 
 qa_queue(){
@@ -277,6 +277,46 @@ a_last_answer(){
     cat $(a_last_answer_file)
 }
 
+tag() {
+  local lookback=0
+
+  # Check if the first argument is a number (for lookback)
+  if [[ $1 =~ ^[0-9]+$ ]]; then
+    lookback=$1
+    shift
+  fi
+
+  local db="$QA_DIR/db"
+
+  # Get a sorted list of .answer files
+  local files=($(ls "$db"/*.answer 2>/dev/null | sort -n))
+  if [[ ${#files[@]} -eq 0 ]]; then
+    echo "No answer files found in $db" >&2
+    return 1
+  fi
+
+  local last=$((${#files[@]} - 1))
+
+  # Optional sanitization function; define _qa_sanitize_index if used
+  local indexFromLast=$lookback
+  if declare -f _qa_sanitize_index &>/dev/null; then
+    indexFromLast=$(_qa_sanitize_index "$lookback")
+  fi
+
+  local index=$((last - indexFromLast))
+  if (( index < 0 || index > last )); then
+    echo "Invalid lookback value: $lookback" >&2
+    return 1
+  fi
+
+  local file=${files[$index]}
+  local id=$(basename "$file" .answer)
+
+  # Write the rest of the arguments to the .tags file
+  echo "${@}"  "$db/${id}.tags"
+}
+
+
 a()
 {
     # get the last answer
@@ -353,21 +393,10 @@ fa() {
     a "${@}" | glow --pager -s dark -w "$width"
 }
 
-# refactor to use  _get_file
 
-# should take lookback
-# if narg = 1, lookback=0, grade=$1
-# if narg = 2, lookback=$1, grade=$2
-ga(){
-    local lookback=${1:-0}
-    local grade=${2:-0}
-    local db="$QA_DIR/db"
-    local files=($(ls $db/*.answer | sort -n))
-    local last=$((${#files[@]}-1))
-    local indexFromLast=$(_qa_sanitize_index $lookback)
-    local index=$(($last-$indexFromLast))
-    echo  $grade >"${files[$index]}.grade"
-    #echo ${files[$index]}.grade
+tags(){
+    local files=($(ls $QA_DIR/db/*.tags | sort -n))
+    printf "%s\n" ${files[@]}
 }
 
 source $SCRIPT_DIR/export.sh
