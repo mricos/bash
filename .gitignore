@@ -1,3 +1,8 @@
+qa/qa-new.sh
+rag/replace.sh.wip
+rag/tree-sitter-bash/
+rag/wip.sh
+
 *.aac
 *.flv
 *.wav
