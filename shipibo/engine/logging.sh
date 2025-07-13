@@ -9,6 +9,22 @@ log_event() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $message" >> "$LOG_FILE"
 }
 
+# --- Warning Function ---
+# Logs a warning message (prepends 'WARN:')
+# Usage: log_warn "Warning details"
+log_warn() {
+    local message="$1"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] WARN: $message" >> "$LOG_FILE"
+}
+
+# --- Error Function ---
+# Logs an error message (prepends 'ERROR:')
+# Usage: log_error "Error details"
+log_error() {
+    local message="$1"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $message" >> "$LOG_FILE"
+}
+
 # --- Cleanup Function ---
 # Called by the trap on exit to restore terminal state.
 cleanup() {

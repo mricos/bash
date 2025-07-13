@@ -1,4 +1,65 @@
+#!/usr/bin/env bash
+
 # Engine Rendering Logic
+# Uses engine/glyph.sh to map semantic states to renderable glyphs/styles.
+
+source "./engine/glyph.sh" # Source the glyph engine
+
+# --- Helper: Get Terminal Dimensions ---
+# Tries to get terminal dimensions using stty size, falls back to tput.
+# Outputs two lines: first is height, second is width.
+# Falls back to defaults (e.g., 24x80) and logs a warning if both methods fail.
+_get_terminal_dimensions() {
+    log_event "_get_terminal_dimensions: Entering function" # DEBUG
+    local height=24 width=80 # Defaults
+    local got_dimensions=0
+    local stty_out stty_h stty_w tput_h tput_w
+
+    # Method 1: stty size (Often more reliable for current size)
+    if command -v stty &>/dev/null; then
+        stty_out=$(stty size 2>/dev/null)
+        local stty_exit_code=$?
+        log_event "_get_terminal_dimensions: stty exit=$stty_exit_code, output='$stty_out'" # DEBUG
+
+        if [[ $stty_exit_code -eq 0 && "$stty_out" =~ ^([0-9]+)[[:space:]]+([0-9]+)$ ]]; then
+            stty_h=${BASH_REMATCH[1]}
+            stty_w=${BASH_REMATCH[2]}
+            if [[ $stty_h -gt 0 && $stty_w -gt 0 ]]; then
+                height=$stty_h
+                width=$stty_w
+                got_dimensions=1
+                log_event "_get_terminal_dimensions: Got dimensions via stty: ${height}x${width}" # DEBUG
+            else
+                 # Log only if stty gave zero dimensions, not if it failed entirely
+                 log_warn "RENDER: stty size returned zero dimensions ('$stty_out'). Trying tput."
+            fi
+        fi
+    fi
+
+    # Method 2: tput (Fallback if stty failed or didn't get valid dimensions)
+    if [[ $got_dimensions -eq 0 ]] && command -v tput &>/dev/null; then
+        tput_h=$(tput lines 2>/dev/null)
+        tput_w=$(tput cols 2>/dev/null)
+
+        log_event "_get_terminal_dimensions: tput h='$tput_h', w='$tput_w'" # DEBUG
+        if [[ "$tput_h" =~ ^[0-9]+$ && $tput_h -gt 0 && "$tput_w" =~ ^[0-9]+$ && $tput_w -gt 0 ]]; then
+            height=$tput_h
+            width=$tput_w
+            got_dimensions=1
+            log_event "RENDER: Using dimensions from tput fallback: ${height}x${width}"
+        fi
+    fi
+
+    # Final check if we are still using defaults (only log if both methods failed)
+    if [[ $got_dimensions -eq 0 ]]; then
+         log_warn "RENDER: FINAL: Failed to get dimensions via stty and tput. Using defaults ${height}x${width}."
+    fi
+
+    echo "$height"
+    echo "$width"
+    # Return status code: 0 if dimensions were found, 1 if defaults were used.
+    [[ $got_dimensions -eq 1 ]] && return 0 || return 1
+}
 
 # --- Internal Rendering Data Builders ---
 
@@ -34,30 +95,67 @@ _build_ascii_1x1() {
     return 0
 }
 
-# Builds 1x1 Enhanced view using algorithm's get_enhanced_char into global 'display_lines'
-_build_enhanced_1x1() {
+# Builds 1x1 view using get_state() and the glyph engine
+_build_glyph_1x1() {
     display_lines=() # Clear/initialize output array
 
-    if ! declare -F get_enhanced_char &>/dev/null; then
-        display_lines+=("Error: Algorithm ${ALGO_FILE}")
-        display_lines+=("does not provide get_enhanced_char()")
-        display_lines+=("Cannot render Enhanced format.")
+    # Check dependencies: get_state (algo), get_render_data (glyph engine)
+    if ! declare -F get_state &>/dev/null; then
+        display_lines+=("Error: Algo ${ALGO_FILE} missing get_state()")
         return 1
     fi
+    if ! declare -F get_render_data &>/dev/null; then
+         display_lines+=("Error: Glyph engine function get_render_data() not found")
+         return 1
+    fi
+
+    # Pre-fetch render data for common semantic states
+    local -A state_render_map # Map semantic state -> full styled string
+    # Use ERROR_SYMBOL from config if available
+    local error_sym="X"
+    [[ -v ERROR_SYMBOL ]] && error_sym="$ERROR_SYMBOL"
+    local common_states=("DEFAULT" " " "$error_sym") # Add more common states if known
+    # TODO: Add algo-specific SYMBOLS if defined: common_states+=( "${SYMBOLS[@]}" )
+    local state render_data glyph fg bg attr width styled_string
+    for state in "${common_states[@]}"; do
+        render_data=$(get_render_data "$state")
+        IFS='|' read -r glyph fg bg attr width <<<"$render_data"
+        # Handle potential empty parts gracefully
+        styled_string="${attr}${bg}${fg}${glyph}"
+        state_render_map["$state"]="$styled_string"
+    done
+
+    local reset_code=$(tput sgr0 2>/dev/null || echo "\033[0m")
 
     for ((row=0; row<ROWS; row++)); do
         local line=""
         for ((col=0; col<COLS; col++)); do
             local key="$row,$col"
-            local collapse_status="${collapsed[$key]:-0}"
-            local grid_val="${grid[$key]:-}" # Pass empty string if not set
+            # 1. Get semantic state from algorithm
+            local semantic_state=$(get_state $row $col)
+            if [[ -z "$semantic_state" ]]; then
+                semantic_state="DEFAULT"
+            fi
 
-            # Call the algorithm's function to get the character (may include ANSI codes)
-            local display_char
-            display_char=$(get_enhanced_char "$row" "$col" "$collapse_status" "$grid_val")
-            line+="${display_char}" # Append potentially multi-byte/ANSI string
+            # 2. Look up pre-fetched styled string or fetch dynamically
+            local render_string=""
+            if [[ -v state_render_map["$semantic_state"] ]]; then
+                render_string="${state_render_map[$semantic_state]}"
+            else
+                # Slow path for uncommon states
+                # log_event "RENDER: Dynamic lookup for state '$semantic_state'"
+                render_data=$(get_render_data "$semantic_state")
+                IFS='|' read -r glyph fg bg attr width <<<"$render_data"
+                render_string="${attr}${bg}${fg}${glyph}"
+                # Cache it for this frame?
+                state_render_map["$semantic_state"]="$render_string"
+            fi
+
+            # 3. Append the styled string
+            line+="$render_string"
         done
-        display_lines+=("$line")
+        # Add reset at end of line
+        display_lines+=("${line}${reset_code}") 
     done
     return 0
 }
@@ -144,14 +242,20 @@ _build_tiled_nxn() {
 # Calls the appropriate build function based on format, populates global 'display_lines'
 # Primarily used by render_large.
 _build_display_lines() {
-    case "$CURRENT_RENDER_FORMAT" in
+    # NOTE: We are replacing the simple version's CURRENT_RENDER_FORMAT with
+    # the glyph engine's CURRENT_RENDER_MODE.
+    case "$CURRENT_RENDER_MODE" in
         "ASCII")    _build_ascii_1x1 ;;
-        "ENHANCED") _build_enhanced_1x1 ;;
-        "TILED")    _build_tiled_nxn ;;
+        # Use the new glyph builder for modes that require it
+        "UTF8_BASIC"|"UTF8_COLOR"|"EMOJI") _build_glyph_1x1 ;; 
+        # "TILED")    _build_tiled_nxn ;; # Disabled for now
         *)
             display_lines=() # Clear
-            display_lines+=("Error: Unknown render format '$CURRENT_RENDER_FORMAT'")
-            return 1
+            # Fallback to ASCII or glyph if mode is unknown but maybe defined in glyphs.conf
+            log_warn "RENDER: Unknown render mode '$CURRENT_RENDER_MODE' in case statement. Trying glyph builder."
+            _build_glyph_1x1 || _build_ascii_1x1 # Try glyph, then ASCII as last resort
+            # display_lines+=("Error: Unknown render mode '$CURRENT_RENDER_MODE'")
+            # return 1 
             ;;
     esac
     return $? # Return status of the build function
@@ -163,51 +267,48 @@ _build_display_lines() {
 _build_text_lines() {
     text_lines=() # Clear/initialize global array
 
-    local available_str=""
-    [[ -v AVAILABLE_FORMATS[ASCII] ]] && available_str+="A"
-    [[ -v AVAILABLE_FORMATS[ENHANCED] ]] && available_str+="E"
-    [[ -v AVAILABLE_FORMATS[TILED] ]] && available_str+="T"
-
-    text_lines+=("WFC Engine - $(date +"%T")")
-    text_lines+=("----------------------------------------")
-    text_lines+=("Algorithm: ${ALGO_FILE} [$((CURRENT_ALGO_INDEX+1))/${#ALGO_FILES[@]}]")
-    text_lines+=("Format: ${CURRENT_RENDER_FORMAT} [$available_str]")
-    local status_str="Paused"
-    [[ $RUNNING -eq 1 ]] && status_str="Running"
-    text_lines+=("Status: $status_str")
-    text_lines+=("Message: $STATUS_MESSAGE")
-    text_lines+=("----------------------------------------")
+    # Add top padding
+    text_lines+=("")
+    text_lines+=("")
 
     # Doc page display logic
     if [[ ${#PAGES[@]} -gt 0 ]]; then
-        text_lines+=("DOC PAGE $((CURRENT_DOC_PAGE+1))/${#PAGES[@]}")
-        text_lines+=("----------------------------------------")
-        local content_lines=()
-        IFS=$'\n' read -d '' -ra content_lines <<< "${PAGES[$CURRENT_DOC_PAGE]}"
-        for line in "${content_lines[@]}"; do
-            # Truncate/Pad doc lines to fit panel width
-            printf -v formatted_line "%-40.40s" "$line"
-            text_lines+=("$formatted_line")
-        done
-        text_lines+=("----------------------------------------")
+        local doc_text="${PAGES[$CURRENT_DOC_PAGE]}"
+        # Use fixed width for now, matching render_small's text_panel_width
+        local wrap_width=40
+        # Wrap the text using fold, handle potential errors
+        if command -v fold &> /dev/null; then
+            # Use mapfile to read lines output by fold
+            mapfile -t content_lines < <(echo -n "$doc_text" | fold -sw $wrap_width)
+            log_event "RENDER DEBUG: Doc content lines after fold:" # DEBUG
+            for line in "${content_lines[@]}"; do
+                log_event "RENDER DEBUG:  -> [$line]" # DEBUG
+                text_lines+=("$line")
+            done
+        else
+            # Fallback if fold is not available: Manual split (less reliable wrapping)
+            log_warn "RENDER: 'fold' command not found. Using basic line splitting for docs."
+            IFS=$'\n' read -d '' -ra content_lines <<< "$doc_text"
+            # Basic truncation as fallback
+            local i
+            for i in "${!content_lines[@]}"; do
+                 [[ ${#content_lines[i]} -gt $wrap_width ]] && content_lines[i]=${content_lines[i]:0:$wrap_width}
+            done
+            # Add the processed lines to the text_lines array
+            local line
+            for line in "${content_lines[@]}"; do
+                 text_lines+=("$line")
+            done
+        fi
     else
         text_lines+=("NO DOC PAGES AVAILABLE")
         text_lines+=("") # Keep spacing consistent
         text_lines+=("----------------------------------------")
     fi
 
-    # Collapsed count
-    local collapsed_count=0
-    for k in "${!collapsed[@]}"; do [[ "${collapsed[$k]}" == "1" ]] && ((collapsed_count++)); done
-    text_lines+=("Collapsed: $collapsed_count / $((ROWS*COLS))")
+    # Add Algorithm Status Message
     text_lines+=("----------------------------------------")
-    text_lines+=("Controls (Small Mode):")
-    text_lines+=("[Spc]Run/Pause [c]Step [f]Fullscreen")
-    text_lines+=("[k/j]Algo Prv/Nxt [u/i]Fmt Prv/Nxt")
-    text_lines+=("[p/n]Doc Prv/Nxt [e]Empty View")
-    text_lines+=("[q]Quit [a/s/d/w/h/l/;]Algo Keys")
-    text_lines+=("Controls (Large Mode):")
-    text_lines+=("[Arrows] Algo (L/R) / Format (U/D)")
+    text_lines+=("Status: ${STATUS_MESSAGE:-Idle}") # Show message or default
 
     # Return 0 for success (array is global)
     return 0
@@ -242,7 +343,8 @@ render_small() {
         local text_line="${text_lines[i]:-}"       # Get text line or empty
 
         # Sanitize grid line (remove CR) - Important!
-        grid_line=${grid_line//$'\r'/}
+        grid_line=${grid_line//$'
+'/}
 
         # Ensure grid line is exactly COLS width (pad if needed, unlikely for ASCII)
         # Avoid printf formatting based on length here as it caused issues
@@ -257,31 +359,35 @@ render_small() {
 
         # Format the text panel line (pad/truncate)
         local formatted_text=""
-        printf -v formatted_text "%-${text_panel_width}.${text_panel_width}s" "$text_line"
-
-        # Append the combined line (using the potentially padded/truncated grid_line)
-        output_buffer+="$grid_line$spacing$formatted_text"$'\n'
+        # DEBUG: Use raw text line without printf formatting
+        formatted_text="$text_line" # Use raw line from fold
+        # Original formatting (causes issues with some UTF chars?):
+        # printf -v formatted_text "%-${text_panel_width}.${text_panel_width}s" "$text_line"
+        # Add padding before reset if grid_line ends with one
+        # This is complex. Simplification: Just append padding.
+        output_buffer+="${grid_line}${grid_padding}${spacing}${formatted_text}"$'\n'
     done
 
     # Return the complete buffer for printing
-    echo "$output_buffer"
+    printf %s "$output_buffer"
 }
 
 
 # Renders the currently selected format centered (LARGE / Fullscreen mode)
 render_large() {
-    # Build the display lines based on CURRENT_RENDER_FORMAT
+    # Build the display lines based on CURRENT_RENDER_MODE
     if ! _build_display_lines; then
          # Handle error - build function should put error in display_lines
-         log_event "Error building display lines for format $CURRENT_RENDER_FORMAT in render_large."
+         log_event "Error building display lines for format $CURRENT_RENDER_MODE in render_large."
          # Allow rendering the error message stored in display_lines
     fi
 
     local grid_display_height=${#display_lines[@]}
-    local grid_char_width=0 # Calculate actual width below
+    # The grid from _build_glyph_1x1 or _build_ascii_1x1 should be exactly COLS wide visually.
+    local grid_char_width=${COLS:-40} # Use COLS global, default to 40
 
     if [[ $grid_display_height -eq 0 ]]; then
-         display_lines+=("Error: No display lines generated for $CURRENT_RENDER_FORMAT.")
+         display_lines+=("Error: No display lines generated for $CURRENT_RENDER_MODE.")
          grid_display_height=1
          grid_char_width=${#display_lines[0]}
     fi
@@ -293,22 +399,11 @@ render_large() {
         can_use_wc=1
     fi
 
-    for line in "${display_lines[@]}"; do
-         local len=0
-         # Strip ANSI codes before calculating width for accurate centering
-         local clean_line; clean_line=$(echo -n "$line" | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g')
-
-         if [[ $can_use_wc -eq 1 ]]; then
-             len=$(echo -n "$clean_line" | wc -m)
-         else
-             len=${#clean_line} # Fallback to byte length
-         fi
-         (( len > grid_char_width )) && grid_char_width=$len
-    done
-
     # Get terminal dimensions
-    local term_rows=$(tput lines)
-    local term_cols=$(tput cols)
+    local term_dims defaults_used=0
+    term_dims=$(_get_terminal_dimensions) || defaults_used=1 # Capture return status
+    local term_rows=$(echo "$term_dims" | sed -n 1p)
+    local term_cols=$(echo "$term_dims" | sed -n 2p)
 
     # Prevent grid_char_width from exceeding terminal width
     [[ $grid_char_width -gt $term_cols ]] && grid_char_width=$term_cols
@@ -319,9 +414,10 @@ render_large() {
     [[ $row_offset -lt 0 ]] && row_offset=0
     [[ $col_offset -lt 0 ]] && col_offset=0
 
-    # Build the output buffer with positioning
-    local output_buffer=""
-    output_buffer+=$(printf "\033[%d;%dH" $((row_offset + 1)) 1) # Move to top-left of centered area (col 1)
+    # Build the output buffer with positioning using ANSI codes
+    local render_large_buffer=""
+    # Don't add the clear screen here, it's handled by the main render function
+    # render_large_buffer+=$(printf "\\033[H\\033[J") # Clear screen
 
     for ((i=0; i<${#display_lines[@]}; i++)); do
          # Pad line with spaces on the right to clear previous content and fill width
@@ -334,29 +430,221 @@ render_large() {
          [[ $padding_needed -lt 0 ]] && padding_needed=0
          local padding_spaces; printf -v padding_spaces "%${padding_needed}s" ""
 
-         # Construct final line: Move to correct column offset, print content, print padding
+         # Construct final line: Move to correct row/column offset, print content, print padding
          local move_cmd; printf -v move_cmd "\033[%d;%dH" $((row_offset + i + 1)) $((col_offset + 1))
-         output_buffer+="${move_cmd}${line_content}${padding_spaces}"
+         render_large_buffer+="${move_cmd}${line_content}${padding_spaces}"
     done
 
-    # Return the complete buffer for printing
-    echo "$output_buffer"
+    # Return the complete buffer for printing by the main render function
+    printf %s "$render_large_buffer"
 }
 
 
 # --- Main Render Dispatcher ---
 # Calls the appropriate rendering function based on FULL_SCREEN mode
 render() {
-    local output_buffer=""
+    # --- Consolidated Render --- #
+    # Build a single command string for the entire screen update
+    local output_commands=""
+    output_commands+="$(tput clear 2>/dev/null || printf '\033[H\033[J')" # Clear screen
+    output_commands+="$(tput civis 2>/dev/null)" # Hide cursor
 
+    # --- Add Main Content Drawing Commands ---
+    local defaults_used=0 # Need to track this for status bar
     if [[ $FULL_SCREEN -eq 1 ]]; then
-        output_buffer=$(render_large) # Capture output
-    else
-        output_buffer=$(render_small) # Capture output
+        # render_large now returns the pre-formatted, centered content with ANSI positioning
+        local centered_content=$(render_large)
+        output_commands+="$centered_content" # Append it directly
+    else # Small mode
+        output_buffer=$(render_small) # render_small just returns the lines
+        local -a lines_to_draw; mapfile -t lines_to_draw <<< "$output_buffer"
+        local i
+        for i in "${!lines_to_draw[@]}"; do
+             output_commands+="$(tput cup $i 0 2>/dev/null)" # Position (top-left)
+             output_commands+="$(tput el 2>/dev/null)" # Clear line
+             output_commands+="${lines_to_draw[i]}" # Draw line
+        done
     fi
 
-    # Clear screen THEN print the entire buffer at once
-    # Use printf %s - safer than %b which interprets backslashes
-    printf "\033[H\033[J%s" "$output_buffer"
+    local term_dims defaults_used=0
+    term_dims=$(_get_terminal_dimensions) || defaults_used=1 # Capture return status
+    local term_rows=$(echo "$term_dims" | sed -n 1p)
+    local term_cols=$(echo "$term_dims" | sed -n 2p)
+
+    # --- Append Controls Overlay Commands (if enabled) ---
+    if [[ ${SHOW_CONTROLS:-0} -eq 1 ]]; then
+        local controls_lines_str=$(_draw_controls_overlay)
+        if [[ -n "$controls_lines_str" ]]; then
+             # Calculate position and dimensions (as before)
+             local -a control_lines_array; mapfile -t control_lines_array <<< "$controls_lines_str"
+             local controls_height=${#control_lines_array[@]}
+             local controls_width=0; local line_width=0; local clean_line=""
+             for line_content in "${control_lines_array[@]}"; do
+                  clean_line=$(echo -n "$line_content" | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g')
+                  if command -v wc &> /dev/null; then line_width=$(echo -n "$clean_line" | wc -m); else line_width=${#clean_line}; fi
+                  (( line_width > controls_width )) && controls_width=$line_width
+             done
+
+             local target_controls_row_0_based=$(( term_rows - 2 - controls_height ))
+             local target_controls_col_0_based=$(( (term_cols - controls_width) / 2 ))
+             [[ $target_controls_row_0_based -lt 0 ]] && target_controls_row_0_based=0
+             [[ $target_controls_col_0_based -lt 0 ]] && target_controls_col_0_based=0
+
+             # Append drawing commands
+             log_event "RENDER DEBUG: Controls Overlay. TargetRow0=${target_controls_row_0_based}, TargetCol0=${target_controls_col_0_based}, Width=${controls_width}, Height=${controls_height}"
+             local i line_content move_cmd
+             for i in "${!control_lines_array[@]}"; do
+                 line_content="${control_lines_array[i]}"
+                 move_cmd=$(tput cup $(( target_controls_row_0_based + i )) $target_controls_col_0_based 2>/dev/null)
+                 output_commands+="${move_cmd}${line_content}" # Append move and line content
+             done
+        fi
+    # Note: No explicit clearing needed when hidden; main redraw overwrites.
+    fi
+
+    # --- Append Status Bar Commands ---
+    local status_row=$((term_rows - 1))
+    [[ $status_row -lt 0 ]] && status_row=0
+    local status_row2=$((term_rows - 2))
+    [[ $status_row2 -lt 0 ]] && status_row2=0
+
+    # Ensure defaults are used if extraction failed
+    [[ -z "$term_rows" || -z "$term_cols" ]] && term_rows=24 && term_cols=80 && defaults_used=1
+
+    # Construct status string (as before)
+    # --- Line 1 (Bottom) --- 
+    local run_status="Paused"
+    [[ $RUNNING -eq 1 ]] && run_status="Running"
+    local default_indicator=""
+    [[ $defaults_used -eq 1 ]] && default_indicator="(Def) "
+    local algo_mode_indicator=""
+    if [[ "$ALGO_FILE" == "blocky.sh" && -v BLOCKY_RULE_MODE ]]; then
+        # Try calling the algo-specific function for the name
+        if declare -F get_current_mode_name &>/dev/null; then
+            local friendly_name
+            friendly_name=$(get_current_mode_name) # Call the function
+            algo_mode_indicator=" (${friendly_name:-$BLOCKY_RULE_MODE})" # Fallback to number
+        else
+            algo_mode_indicator=" (${BLOCKY_RULE_MODE})"
+        fi
+    fi
+
+    local status_string1="Term:${default_indicator}${term_rows}x${term_cols} | Algo: ${ALGO_FILE}${algo_mode_indicator} | ${run_status}"
+
+    # Add collapsed count if applicable
+    if declare -p collapsed &>/dev/null && [[ ${#collapsed[@]} -gt 0 ]]; then
+        local collapsed_count=0
+        local total_cells=$((ROWS*COLS)) # Assuming ROWS/COLS are correct
+        # Efficiently count set values (Bash 4+)
+        local count_str; count_str=$(printf "%s\\n" "${collapsed[@]}" | grep -c '1')
+        [[ "$count_str" =~ ^[0-9]+$ ]] && collapsed_count=$count_str
+        status_string1+=" | Collapsed: ${collapsed_count}/${total_cells}"
+    fi
+
+    # --- Line 2 (Second to Bottom) ---
+    local status_string2="Display: ${CURRENT_RENDER_MODE}"
+    # Append custom STATUS_MESSAGE if set and non-empty
+    [[ -n "${STATUS_MESSAGE}" ]] && status_string2+=" | ${STATUS_MESSAGE}"
+
+    # Calculate length *without* potential ANSI codes for accurate padding
+    local clean_status_string1=$(echo -n "$status_string1" | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g')
+    local status_len1=${#clean_status_string1}
+    local clean_status_string2=$(echo -n "$status_string2" | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g')
+    local status_len2=${#clean_status_string2}
+
+    local padding_needed1=$((term_cols - status_len1))
+    [[ $padding_needed1 -lt 0 ]] && padding_needed1=0
+    local padding_spaces1; printf -v padding_spaces1 "%${padding_needed1}s" ""
+
+    local padding_needed2=$((term_cols - status_len2))
+    [[ $padding_needed2 -lt 0 ]] && padding_needed2=0
+    local padding_spaces2; printf -v padding_spaces2 "%${padding_needed2}s" ""
+
+    # Get tput codes (dim might fail gracefully)
+    local move_to_status_line1=$(tput cup ${status_row} 0 2>/dev/null)
+    local move_to_status_line2=$(tput cup ${status_row2} 0 2>/dev/null)
+    local clear_line=$(tput el 2>/dev/null)
+    local set_dim=$(tput dim 2>/dev/null || echo "")
+    local reset_attrs=$(tput sgr0 2>/dev/null || echo "\033[0m")
+
+    log_event "RENDER DEBUG: Drawing status bar. term_rows=${term_rows}, status_row=${status_row}."
+    # Add commands for BOTH status lines
+    output_commands+="${move_to_status_line2}${clear_line}${set_dim}${status_string2}${padding_spaces2}${reset_attrs}" # Line 2 (Draw first to avoid flicker?)
+    output_commands+="${move_to_status_line1}${clear_line}${set_dim}${status_string1}${padding_spaces1}${reset_attrs}" # Line 1 (Bottom)
+    # --- End Status Bar Commands ---
+
+    # Append final cursor positioning and visibility commands
+    output_commands+="$(tput cup ${status_row} 0 2>/dev/null)" # Position cursor at start of status line
+    output_commands+="$(tput cnorm 2>/dev/null)" # Make cursor visible
+
+    # Execute all commands at once
+    printf %s "$output_commands"
+}
+
+# --- Draw Controls Overlay ---
+# Generates the text lines for the controls overlay based on global arrays.
+# Formats controls into columns.
+# Returns a string containing formatted lines with newline separators.
+# (Adapted from previous version)
+_draw_controls_overlay() {
+    if [[ ! -v CONTROL_KEYS || ${#CONTROL_KEYS[@]} -eq 0 ]]; then
+        echo " [ Controls data not loaded ] " # Return a single line message
+        return
+    fi
+
+    local -a overlay_lines # Array to hold the final output lines
+    local total_items=${#CONTROL_KEYS[@]}
+
+    # --- Layout Configuration ---
+    local num_cols=4
+    local target_col_width=24 # Increased width for alignment
+    local col_spacing_width=2 # Spaces between columns
+    local col_spacing_str; printf -v col_spacing_str "%${col_spacing_width}s" ""
+
+    # --- Calculate Rows Needed ---
+    local num_rows=$(( (total_items + num_cols - 1) / num_cols ))
+    [[ $num_rows -eq 0 ]] && return # No items, nothing to draw
+
+    # --- Build Lines --- 
+    for (( row=0; row < num_rows; row++ )); do
+        local current_line=""
+        for (( col=0; col < num_cols; col++ )); do
+            local item_index=$(( row + col * num_rows )) # Fill columns first
+
+            if (( item_index < total_items )); then
+                local key="${CONTROL_KEYS[item_index]}"
+                local label="${CONTROL_LABELS[item_index]}"
+                local display_key="$key"
+                # Handle special key names for display
+                case "$key" in
+                    SPACE) display_key="Spc" ;;
+                    LEFT) display_key="←" ;;
+                    RIGHT) display_key="→" ;;
+                    UP) display_key="↑" ;;
+                    DOWN) display_key="↓" ;;
+                    # Add more if needed (e.g., ESC, ENTER)
+                esac
+                # Format: [Key] Label
+                local item_text="[${display_key}] ${label}"
+                local padded_item=""
+                printf -v padded_item "%-${target_col_width}.${target_col_width}s" "$item_text"
+                current_line+="$padded_item"
+            else
+                # Pad empty slots in the column
+                local empty_col_padding; printf -v empty_col_padding "%${target_col_width}s" ""
+                current_line+="$empty_col_padding"
+            fi
+
+            if (( col < num_cols - 1 )); then
+                current_line+="$col_spacing_str"
+            fi
+        done # End column loop
+
+        overlay_lines+=("$current_line") # Add completed line to array
+    done # End row loop
+
+    # Join lines with newline and return
+    local IFS=$'\n'
+    echo "${overlay_lines[*]}"
 }
 

@@ -45,6 +45,20 @@ on their left/right.
 )
 ERROR_SYMBOL=" "
 
+# --- ASCII Name Mapping for Rule Keys ---
+declare -gA SYMBOL_TO_NAME
+SYMBOL_TO_NAME["═"]="PIPE_H"
+SYMBOL_TO_NAME["║"]="PIPE_V"
+SYMBOL_TO_NAME["╔"]="CORNER_TL"
+SYMBOL_TO_NAME["╗"]="CORNER_TR"
+SYMBOL_TO_NAME["╚"]="CORNER_BL"
+SYMBOL_TO_NAME["╝"]="CORNER_BR"
+SYMBOL_TO_NAME["╬"]="CROSS"
+SYMBOL_TO_NAME["╩"]="T_UP"
+SYMBOL_TO_NAME["╠"]="T_RIGHT"
+SYMBOL_TO_NAME["╦"]="T_DOWN"
+SYMBOL_TO_NAME["╣"]="T_LEFT"
+
 # ───── Helper Functions (Internal to this script) ─────
 
 # Function to filter the current options of a cell based on allowed neighbors
@@ -134,14 +148,24 @@ propagate() {
                 local neighbor_symbol=""
                 if [[ "${collapsed[$nkey]}" == "1" ]]; then
                      neighbor_symbol="${grid[$nkey]}"
+                     # Handle case where neighbor is an error symbol
+                     if [[ "$neighbor_symbol" == "$ERROR_SYMBOL" ]]; then continue; fi
                 else
-                     continue # Only check constraint against *collapsed* neighbours for now
+                     continue # Only check constraint against *collapsed* neighbours
                 fi
 
-                # What symbols does the *neighbor* allow *this* cell (current_key) to be?
-                # i.e., what can be to the `opposite_dir` of the neighbor_symbol?
-                local rule_key="${neighbor_symbol}_${opposite_dir}"
+                # --- Rule Lookup using ASCII Name --- 
+                # Get the ASCII name for the neighbor's symbol
+                local neighbor_name="${SYMBOL_TO_NAME[$neighbor_symbol]}"
+                if [[ -z "$neighbor_name" ]]; then
+                    # Should not happen if SYMBOL_TO_NAME is complete
+                    echo "ERROR (propagate): Unknown symbol '$neighbor_symbol' at $nkey" >&2
+                    possible=0; break
+                fi
+                # Construct the rule key using the ASCII name
+                local rule_key="${neighbor_name}_${opposite_dir}"
                 local allowed_by_neighbor="${rules[$rule_key]}"
+                # --- End Rule Lookup --- 
 
                 # If the potential_sym for the current cell is NOT allowed by this collapsed neighbor
                 if [[ -z "$allowed_by_neighbor" || " ${allowed_by_neighbor} " != *" ${potential_sym} "* ]]; then
@@ -193,94 +217,82 @@ propagate() {
 
 # Initialize connection rules (Tube Network Theme)
 init_rules() {
-    rules=() # Clear global rules
+    unset rules # Explicitly unset before declaring
+    declare -gA rules # Ensure rules is declared as a global associative array
     echo "INFO (wfc.sh): Initializing Tube Network rules..." >> "$LOG_FILE"
 
-    # Define what can be placed TO THE [left, right, up, down] OF the key symbol,
-    # ensuring the connecting edges match.
-
-    # Symbols that need connection FROM THE RIGHT (attach to key's left)
+    # Allowed neighbor symbols (strings of actual symbols)
     local connects_from_right="═ ╗ ╝ ╣ ╬"
-    # Symbols that need connection FROM THE LEFT (attach to key's right)
     local connects_from_left="═ ╔ ╚ ╠ ╬"
-    # Symbols that need connection FROM THE BOTTOM (attach to key's top)
     local connects_from_bottom="║ ╚ ╝ ╩ ╬"
-    # Symbols that need connection FROM THE TOP (attach to key's bottom)
     local connects_from_top="║ ╔ ╗ ╦ ╬"
 
-    # --- Lines ---
-    # ═ (Connects Left/Right)
-    rules["═_left"]="$connects_from_right"
-    rules["═_right"]="$connects_from_left"
-    rules["═_up"]=""
-    rules["═_down"]=""
-    # ║ (Connects Up/Down)
-    rules["║_left"]=""
-    rules["║_right"]=""
-    rules["║_up"]="$connects_from_bottom"
-    rules["║_down"]="$connects_from_top"
+    # Use ASCII names for rule keys
+    rules["PIPE_H_left"]="$connects_from_right"
+    rules["PIPE_H_right"]="$connects_from_left"
+    rules["PIPE_H_up"]=""
+    rules["PIPE_H_down"]=""
 
-    # --- Corners ---
-    # ╔ (Connects Right/Down)
-    rules["╔_left"]=""
-    rules["╔_right"]="$connects_from_left"
-    rules["╔_up"]=""
-    rules["╔_down"]="$connects_from_top"
-    # ╗ (Connects Left/Down)
-    rules["╗_left"]="$connects_from_right"
-    rules["╗_right"]=""
-    rules["╗_up"]=""
-    rules["╗_down"]="$connects_from_top"
-    # ╚ (Connects Right/Up)
-    rules["╚_left"]=""
-    rules["╚_right"]="$connects_from_left"
-    rules["╚_up"]="$connects_from_bottom"
-    rules["╚_down"]=""
-    # ╝ (Connects Left/Up)
-    rules["╝_left"]="$connects_from_right"
-    rules["╝_right"]=""
-    rules["╝_up"]="$connects_from_bottom"
-    rules["╝_down"]=""
+    rules["PIPE_V_left"]=""
+    rules["PIPE_V_right"]=""
+    rules["PIPE_V_up"]="$connects_from_bottom"
+    rules["PIPE_V_down"]="$connects_from_top"
 
-    # --- T-Junctions ---
-    # ╦ (Connects Left/Right/Down - Open Top)
-    rules["╦_left"]="$connects_from_right"
-    rules["╦_right"]="$connects_from_left"
-    rules["╦_up"]=""
-    rules["╦_down"]="$connects_from_top"
-    # ╩ (Connects Left/Right/Up - Open Bottom)
-    rules["╩_left"]="$connects_from_right"
-    rules["╩_right"]="$connects_from_left"
-    rules["╩_up"]="$connects_from_bottom"
-    rules["╩_down"]=""
-    # ╠ (Connects Up/Down/Right - Open Left)
-    rules["╠_left"]=""
-    rules["╠_right"]="$connects_from_left"
-    rules["╠_up"]="$connects_from_bottom"
-    rules["╠_down"]="$connects_from_top"
-    # ╣ (Connects Up/Down/Left - Open Right)
-    rules["╣_left"]="$connects_from_right"
-    rules["╣_right"]=""
-    rules["╣_up"]="$connects_from_bottom"
-    rules["╣_down"]="$connects_from_top"
+    rules["CORNER_TL_left"]=""
+    rules["CORNER_TL_right"]="$connects_from_left"
+    rules["CORNER_TL_up"]=""
+    rules["CORNER_TL_down"]="$connects_from_top"
 
-    # --- Cross Intersection ---
-    # ╬ (Connects All Directions)
-    rules["╬_left"]="$connects_from_right"
-    rules["╬_right"]="$connects_from_left"
-    rules["╬_up"]="$connects_from_bottom"
-    rules["╬_down"]="$connects_from_top"
+    rules["CORNER_TR_left"]="$connects_from_right"
+    rules["CORNER_TR_right"]=""
+    rules["CORNER_TR_up"]=""
+    rules["CORNER_TR_down"]="$connects_from_top"
 
+    rules["CORNER_BL_left"]=""
+    rules["CORNER_BL_right"]="$connects_from_left"
+    rules["CORNER_BL_up"]="$connects_from_bottom"
+    rules["CORNER_BL_down"]=""
 
-    # Ensure all defined symbols have entries for all directions (even if empty)
+    rules["CORNER_BR_left"]="$connects_from_right"
+    rules["CORNER_BR_right"]=""
+    rules["CORNER_BR_up"]="$connects_from_bottom"
+    rules["CORNER_BR_down"]=""
+
+    rules["T_DOWN_left"]="$connects_from_right"
+    rules["T_DOWN_right"]="$connects_from_left"
+    rules["T_DOWN_up"]=""
+    rules["T_DOWN_down"]="$connects_from_top"
+
+    rules["T_UP_left"]="$connects_from_right"
+    rules["T_UP_right"]="$connects_from_left"
+    rules["T_UP_up"]="$connects_from_bottom"
+    rules["T_UP_down"]=""
+
+    rules["T_RIGHT_left"]=""
+    rules["T_RIGHT_right"]="$connects_from_left"
+    rules["T_RIGHT_up"]="$connects_from_bottom"
+    rules["T_RIGHT_down"]="$connects_from_top"
+
+    rules["T_LEFT_left"]="$connects_from_right"
+    rules["T_LEFT_right"]=""
+    rules["T_LEFT_up"]="$connects_from_bottom"
+    rules["T_LEFT_down"]="$connects_from_top"
+
+    rules["CROSS_left"]="$connects_from_right"
+    rules["CROSS_right"]="$connects_from_left"
+    rules["CROSS_up"]="$connects_from_bottom"
+    rules["CROSS_down"]="$connects_from_top"
+
+    # Ensure all defined ASCII names have entries for all directions (even if empty)
     local -a all_dirs=("left" "right" "up" "down")
-    for sym in "${SYMBOLS[@]}"; do
+    local name
+    for name in "${SYMBOL_TO_NAME[@]}"; do # Iterate through the ASCII names (values of the map)
         for dir in "${all_dirs[@]}"; do
-            local rule_key="${sym}_${dir}"
+            local rule_key="${name}_${dir}"
             [[ -v rules["$rule_key"] ]] || rules["$rule_key"]=""
         done
     done
-    echo "INFO (wfc.sh): Tube Network rules initialized." >> "$LOG_FILE"
+    echo "INFO (wfc.sh): Tube Network rules initialized using ASCII keys." >> "$LOG_FILE"
 }
 
 # Initialize grid with Shipibo pattern guidance

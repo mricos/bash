@@ -4,7 +4,7 @@
 # A simple algorithm that creates meandering snake-like paths with spaces
 
 # Define pages of information about this algorithm
-PAGES=(
+export PAGES=(
     "SNAKE PATH ALGORITHM
 
 Creates a continuous snake path
