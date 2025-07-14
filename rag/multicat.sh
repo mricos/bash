@@ -250,11 +250,11 @@ for file_path in "${files_to_process[@]}"; do
     file_dir=$(dirname "$file_path")
     file_name=$(basename "$file_path")
     {
-      echo "#MULTICAT_START#"
+      echo "#MULTICAT_START"
       echo "# dir: ${file_dir}"
       echo "# file: ${file_name}"
       echo "# notes:"
-      echo "#MULTICAT_END#"
+      echo "#MULTICAT_END"
     } >> "$tmp_file"
     if ! cat "$file_path" >> "$tmp_file"; then
       echo "Warning: Failed to read content from '$file_path'." >&2
