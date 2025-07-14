@@ -76,7 +76,7 @@ qa_test(){
   a
 }
 
-qa_query(){
+qa_query_old(){
   q_gpt_query ${@}
 }
 
@@ -150,6 +150,31 @@ q_gpt_query ()
     
     #set +x # Disable command tracing before exiting
 } 
+
+qa_query() {
+  local input
+
+  if [[ "$1" == "-" ]]; then
+    echo "[qa.sh DEBUG] Reading input from stdin (via placeholder '-')." >&2
+    input=$(cat)
+    shift
+  elif [[ ! -z "$1" ]]; then
+    echo "[qa.sh DEBUG] Reading input from command line arguments." >&2
+    input="$*"
+  else
+    echo "[qa.sh DEBUG] Reading input from stdin." >&2
+    input=$(cat)
+  fi
+
+  if [[ -z "$input" ]]; then
+    echo "[qa.sh ERROR] No input received." >&2
+    return 1
+  fi
+
+  input=$(_qa_sanitize_input "$input")
+
+  q_gpt_query "$input"
+}
 
 qa_queue(){
   local i=${#QA_QUEUE[@]}
