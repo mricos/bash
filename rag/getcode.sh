@@ -1,14 +1,14 @@
 getcode() {
-    local index="${1:-1}"  # Default to first code block
+    local index="${1:-1}"
     local count=0
     local collecting=false
     local block=""
-    
+
     while IFS= read -r line || [[ -n "$line" ]]; do
         if [[ "$line" =~ ^\`\`\` ]]; then
-            if $collecting; then
-                # End of block
-                count=$((count + 1))
+            if [[ "$collecting" == true ]]; then
+                # End of code block
+                ((count++))
                 if [[ "$index" == "all" ]]; then
                     printf '%s\n' "$block"
                 elif [[ "$count" -eq "$index" ]]; then
@@ -18,11 +18,10 @@ getcode() {
                 block=""
                 collecting=false
             else
-                # Start of block
                 collecting=true
                 block=""
             fi
-        elif $collecting; then
+        elif [[ "$collecting" == true ]]; then
             block+="$line"$'\n'
         fi
     done

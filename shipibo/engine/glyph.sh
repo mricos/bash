@@ -208,7 +208,7 @@ get_render_data() {
     # Override fg_name if a specific color name was passed via state_color_name
     if [[ -n "$state_color_name" ]]; then
         # --- DEBUG --- 
-        echo "DEBUG GLYPH: Checking color name: '$state_color_name'" >&2
+        #echo "DEBUG GLYPH: Checking color name: '$state_color_name'" >&2
         # --- END DEBUG ---
         # Check if the provided color name actually exists in COLOR_MAP
         if [[ -v COLOR_MAP["$state_color_name"] ]]; then

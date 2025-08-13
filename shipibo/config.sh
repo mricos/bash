@@ -3,8 +3,8 @@
 # Locale settings are now set in simple_engine.sh
 
 # --- Core Engine Configuration ---
-ROWS=20
-COLS=20
+ROWS=16
+COLS=16
 RUNNING=0
 SHOULD_EXIT=0
 FULL_SCREEN=0         # DEFAULT: 0=Small (Side-by-Side), 1=Large (Fullscreen Centered)

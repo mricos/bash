@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+SLEEP=$(SLEEP::-"0.01")
 # --- Engine Lifecycle Functions ---
 # Handles initialization, main loop, cleanup, algorithm loading.
 
@@ -320,7 +321,7 @@ main() {
       # 4. Sleep if paused and no input detected (to prevent busy-waiting)
       # The timeout is now handled within _get_key_symbol inside _process_input
       # We might still want a small sleep here if not running to yield CPU
-      [[ $RUNNING -eq 0 ]] && sleep 0.02
+      [[ $RUNNING -eq 0 ]] && sleep $SLEEP 
 
   done
 
