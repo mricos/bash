@@ -1,6 +1,4 @@
-mc(){
-  $HOME/src/bash/rag/multicat.sh $@
-}
+alias mc=$HOME/src/bash/rag/bin/mc
 alias ms=$HOME/src/bash/rag/multisplit.sh
 alias mi=$HOME/src/bash/rag/mcinfo.sh
 alias mf=$HOME/src/bash/rag/mutifind.sh

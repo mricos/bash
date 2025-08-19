@@ -1,22 +1,21 @@
-QA_SRC="$HOME/src/bash/qa/qa.sh"
-QA_DIR="$HOME/.qa"
+# Default base directory for Q&A system (overrideable by caller)
+: "${QA_DIR:=$HOME/.qa}"
 
-qqt() {
-    echo "[qa.sh qq DEBUG] Received stdin:" && cat && echo "[qa.sh qq DEBUG] End of stdin."
-    return 0
-}
-qq() { qa_query "$@"; }
-q1() { QA_ENGINE=gpt-3.5-turbo; qa_query "$@"; }
-q2() { QA_ENGINE=gpt-4-turbo; qa_query "$@"; }
-q3() { QA_ENGINE=gpt-4o-mini; qa_query "$@"; }
-q4() { QA_ENGINE=chatgpt-4o-latest; qa_query "$@"; }
-qs() { qa_queue; }
+# Path to this qa.sh file (overrideable if embedded elsewhere)
+: "${QA_SRC:=$HOME/src/bash/qa/qa.sh}"
 
-QA_ENGINE_FILE="$QA_DIR/engine"
-QA_CONTEXT_FILE="$QA_DIR/context"
-OPENAI_API_FILE="$QA_DIR/api_key"
-
+# Engine / context / API key files live under QA_DIR
+: "${QA_ENGINE_FILE:=$QA_DIR/engine}"
+: "${QA_CONTEXT_FILE:=$QA_DIR/context}"
+: "${OPENAI_API_FILE:=$QA_DIR/api_key}"
+# Location of this script
 SCRIPT_DIR=$(dirname "${BASH_SOURCE[0]}")
+
+# Shortcut command
+qq() { qa_query "$@"; }
+
+# Export variables needed downstream
+export QA_DIR QA_SRC QA_ENGINE_FILE QA_CONTEXT_FILE OPENAI_API_FILE
 
 _qa_sanitize_index ()
 {
@@ -48,52 +47,23 @@ _qa_sanitize_input()
     echo "$input"
 }
 
-_truncate_middle() {
-  local input
-
-  if [[ -n "$1" ]]; then
-    input="$1"
-  else
-    input="$(cat)"
-  fi
-
-  # Set default COLUMNS if not set
-  local cols=${COLUMNS:-80}
-  local maxwidth=$((cols - 2))
-  local len=${#input}
-
-  if (( len <= maxwidth )); then
-    echo "$input"
-  else
-    local keep=$(( (maxwidth - 3) / 2 ))
-    local start="${input:0:keep}"
-    local end="${input: -keep}"
-    echo "${start}...${end}"
-  fi
-}
-qa_test(){
-  qq what is the fastest land animal?
-  a
-}
-
-
 qa_query() {
   local input
 
   if [[ "$1" == "-" ]]; then
-    echo "[qa.sh DEBUG] Reading input from stdin (via placeholder '-')." >&2
+    echo "Reading input from stdin (via placeholder '-')." >&2
     input=$(cat)
     shift
   elif [[ ! -z "$1" ]]; then
-    echo "[qa.sh DEBUG] Reading input from command line arguments." >&2
+    echo "Reading input from command line arguments." >&2
     input="$*"
   else
-    echo "[qa.sh DEBUG] Reading input from stdin." >&2
+    echo "Reading input from stdin." >&2
     input=$(cat)
   fi
 
   if [[ -z "$input" ]]; then
-    echo "[qa.sh ERROR] No input received." >&2
+    echo "No input received." >&2
     return 1
   fi
 
@@ -115,17 +85,17 @@ q_gpt_query ()
 
     # --- REVERTED INPUT HANDLING ---
     if [ ! -z "$1" ]; then
-        echo "[qa.sh DEBUG] Reading input from command line arguments." >&2
+        echo "Reading input from command line arguments." >&2
         input="$@"
     else
         # This will now read from stdin provided by Node's spawn
-        echo "[qa.sh DEBUG] Reading input from stdin." >&2
+        echo "Reading input from stdin." >&2
         input=$(cat)
         if [ $? -ne 0 ]; then
              echo "[qa.sh ERROR] Failed reading from stdin." >&2
              return 1
         fi
-        echo "[qa.sh DEBUG] Finished reading from stdin." >&2
+        echo "Finished reading from stdin." >&2
     fi
     # --- END REVERTED INPUT HANDLING ---
 
@@ -174,14 +144,6 @@ q_gpt_query ()
     #set +x # Disable command tracing before exiting
 } 
 
-qa_queue(){
-  local i=${#QA_QUEUE[@]}
-  for id in ${QA_QUEUE[@]}; do
-     ((i--))
-     echo "$i:$id: $(head -n 1 $QA_DIR/db/$id.prompt)" \
-     | _truncate_middle
-  done
-}
 # Show documentation
 qa_help() {
     cat <<EOF
@@ -263,9 +225,6 @@ qa_init() {
     if [ -f "$QA_CONTEXT_FILE" ]; then
         QA_CONTEXT=$(cat "$QA_CONTEXT_FILE")
     fi
-    if [ -z "$QA_QUEUE" ]; then
-        QA_QUEUE=()               # per-shell chain of answers
-    fi
 
 
     qa_set_context "$QA_CONTEXT"  # Set initial context
@@ -285,60 +244,6 @@ q() {
 qa_delete(){
     echo rm $QA_DIR/db/$1.*
 }
-
-a_last_id(){
-    basename $(a_last_answer_file) .answer    
-}
-
-a_last_answer_file(){
-    local files=($(ls $QA_DIR/db/*.answer | sort -n))
-    lastIndex=$((${#files[@]}-1))  # zero index
-    #echo "$db/*.answer: ${#files[@]}, lastIndex=$lastIndex" >&2
-    echo ${files[$lastIndex]}
-}
-a_last_answer(){
-    cat $(a_last_answer_file)
-}
-
-tag() {
-  local lookback=0
-
-  # Check if the first argument is a number (for lookback)
-  if [[ $1 =~ ^[0-9]+$ ]]; then
-    lookback=$1
-    shift
-  fi
-
-  local db="$QA_DIR/db"
-
-  # Get a sorted list of .answer files
-  local files=($(ls "$db"/*.answer 2>/dev/null | sort -n))
-  if [[ ${#files[@]} -eq 0 ]]; then
-    echo "No answer files found in $db" >&2
-    return 1
-  fi
-
-  local last=$((${#files[@]} - 1))
-
-  # Optional sanitization function; define _qa_sanitize_index if used
-  local indexFromLast=$lookback
-  if declare -f _qa_sanitize_index &>/dev/null; then
-    indexFromLast=$(_qa_sanitize_index "$lookback")
-  fi
-
-  local index=$((last - indexFromLast))
-  if (( index < 0 || index > last )); then
-    echo "Invalid lookback value: $lookback" >&2
-    return 1
-  fi
-
-  local file=${files[$index]}
-  local id=$(basename "$file" .answer)
-
-  # Write the rest of the arguments to the .tags file
-  echo "${@}"  "$db/${id}.tags"
-}
-
 
 a()
 {
@@ -362,32 +267,6 @@ a()
 }
 
 
-a_OLD() {
-    local id file files info index lastIndex
-    local N=${#QA_QUEUE[@]}
-    local db=$QA_DIR/db
-    local indexFromLast=$(_qa_sanitize_index $1)
-    if (( indexFromLast < N )); then
-        index=$(($N-$indexFromLast -1 ))
-        id=${QA_QUEUE[$index]}
-        file=$db/$id.answer
-        info="[QA/local/$((index+1))/${N}${file} ]"
-    else 
-        files=($(ls $db/*.answer | sort -n))
-        lastIndex=$((${#files[@]}-1))
-        index=$(($lastIndex-$indexFromLast))
-        file="${files[$index]}"
-        id=$(basename $file .answer)
-        info="[QA/global/$((index+1))/${lastIndex}${file} ]"
-    fi 
-    
-    echo "[$id: $(head -n 1 $db/$id.prompt | _truncate_middle )]"
-    echo 
-    cat $file
-    echo
-    echo $info
-}
-
 qa_responses ()
 {
     local db="$QA_DIR/db"
@@ -401,77 +280,10 @@ qa_responses ()
     done
 }
 
-qa_db_nuke(){
-    read -p "Delete all queries and responses? [y/N] " -n 1 -r
-    local db="$QA_DIR/db"
-    rm -rf "$db"
-    mkdir -p "$db"
-    echo ""
-}
-
-
-fa() {
-    # Set default values for parameters, allowing overrides
-    local width=${2:-$((COLUMNS - 8 ))}
-    a "${@}" | glow --pager -s dark -w "$width"
-}
-
-
-tags(){
-    local files=($(ls $QA_DIR/db/*.tags | sort -n))
-    printf "%s\n" ${files[@]}
-}
-
-source $SCRIPT_DIR/export.sh
-qa_init
-
-fa_wip() {
-  local query="$1"
-  local width=${2:-$((COLUMNS - 8))}
-  local page_size=1
-  local index=0
-  local input
-
-  # Get total lines returned by 'a' 
-  # — replace this with appropriate logic if paging by a match
-  local matches=()
-  mapfile -t matches < <(a "$query")
-
-  while true; do
-    clear
-    echo "${matches[$index]}" | glow --pager -s dark -w "$width"
-
-    echo -e "\n[Ctrl+N] Next | [Ctrl+P] Prev | [q] Quit"
-
-    # Read one character (-n1) silently (-s)
-    IFS= read -rsn1 input
-
-    # Handle extended keys (e.g., function keys, arrows send escape sequences)
-    if [[ $input == $'\x0e' ]]; then
-      # Ctrl+N => ASCII code 14
-      ((index < ${#matches[@]} - 1)) && ((index++))
-    elif [[ $input == $'\x10' ]]; then
-      # Ctrl+P => ASCII code 16
-      ((index > 0)) && ((index--))
-    elif [[ $input == "q" ]]; then
-      break
-    fi
-  done
-}
-
-export -f qq
-export -f q1
-export -f q2
-export -f q3
-export -f q4
-export -f qa_query
-export -f a
-
 
 echo64() {
     if [ $# -eq 0 ]; then
         # Handle case where no arguments are given (maybe read stdin?)
-        # For now, just echo empty string or error
         echo -n "" # Or echo "Error: echo64 requires arguments." >&2; return 1
     else
         # Concatenate all arguments and pipe to base64
@@ -479,4 +291,41 @@ echo64() {
         echo -n "$@" | base64 -w 0
     fi
 }
+
+_truncate_middle() {
+  local input
+
+  if [[ -n "$1" ]]; then
+    input="$1"
+  else
+    input="$(cat)"
+  fi
+
+  # Set default COLUMNS if not set
+  local cols=${COLUMNS:-80}
+  local maxwidth=$((cols - 2))
+  local len=${#input}
+
+  if (( len <= maxwidth )); then
+    echo "$input"
+  else
+    local keep=$(( (maxwidth - 3) / 2 ))
+    local start="${input:0:keep}"
+    local end="${input: -keep}"
+    echo "${start}...${end}"
+  fi
+}
+
+qa_test(){
+  qq what is the fastest land animal?
+  a
+}
+
+
+qa_init
+export -f qa_query
+export _qa_sanitize_index
+export _qa_sanitize_input
+export -f qq
+export -f a
 export -f echo64
