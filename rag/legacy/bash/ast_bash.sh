@@ -1,12 +1,20 @@
-rag_bash_ast(){
+#!/usr/bin/env bash
+# ast_bash.sh - Bash AST operations using shfmt
+
+set -euo pipefail
+
+# Convert bash to JSON AST
+bash_to_ast() {
   shfmt --to-json
 }
 
-rag_ast_bash(){
+# Convert JSON AST back to bash
+ast_to_bash() {
   shfmt --from-json -i 2
 }
 
-rag_ast_pathvars() {
+# Extract path variables from JSON AST (for debugging/analysis)
+bash_ast_pathvars() {
   local -a stack=()
   local key val depth kvbuf=""
   local indent=""
@@ -44,7 +52,8 @@ rag_ast_pathvars() {
   done
 }
 
-rag_ast_patchfn() {
+# Replace or append function in bash file using AST
+bash_replace_function() {
   local replace_only=0
 
   # Parse flags
@@ -71,6 +80,11 @@ rag_ast_patchfn() {
     .Stmts[]? | select(.Cmd.Type == "FuncDecl") | .Cmd.Name.Value
   ')
 
+  if [[ -z "$fn_name" ]]; then
+    echo "Error: No function declaration found in input" >&2
+    rm -f "$tmpfn"
+    return 1
+  fi
 
   # Locate function range in target file
   eval "$(shfmt -tojson < "$file" | jq -r --arg name "$fn_name" '
@@ -102,4 +116,36 @@ rag_ast_patchfn() {
 
   rm -f "$tmpfn"
 }
- 
+
+# List all functions in a bash file
+bash_list_functions() {
+  local file="$1"
+  [[ -z "$file" || ! -f "$file" ]] && { echo "Usage: $FUNCNAME <file>" >&2; return 1; }
+
+  shfmt -tojson < "$file" | jq -r '
+    .. | objects | select(.Type? == "FuncDecl") | 
+    .Name.Value + " (lines " + (.Pos.Line|tostring) + "-" + (.End.Line|tostring) + ")"
+  '
+}
+
+# Extract specific function from bash file
+bash_extract_function() {
+  local file="$1"
+  local fn_name="$2"
+  [[ -z "$file" || ! -f "$file" || -z "$fn_name" ]] && { 
+    echo "Usage: $FUNCNAME <file> <function_name>" >&2; return 1; 
+  }
+
+  # Get function line range
+  eval "$(shfmt -tojson < "$file" | jq -r --arg name "$fn_name" '
+    .. | objects | select(.Type? == "FuncDecl" and .Name.Value == $name)
+    | "start=" + (.Pos.Line|tostring) + "; end=" + (.End.Line|tostring)
+  ')"
+
+  if [[ -z "$start" || -z "$end" ]]; then
+    echo "Function '$fn_name' not found in $file" >&2
+    return 1
+  fi
+
+  sed -n "${start},${end}p" "$file"
+}

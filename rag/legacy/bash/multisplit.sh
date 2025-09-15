@@ -8,6 +8,9 @@
 
 set -euo pipefail
 
+# Don't execute main logic if script is being sourced
+[[ "${BASH_SOURCE[0]}" != "${0}" ]] && return 0
+
 # --- Functions ---
 display_help() {
   local script_name

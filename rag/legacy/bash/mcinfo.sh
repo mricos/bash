@@ -1,7 +1,10 @@
 #!/bin/bash
 # mcinfo.sh
-# Summarizes a multicat file by listing each file block’s directory and filename, plus a total count.
+# Summarizes a multicat file by listing each file block's directory and filename, plus a total count.
 set -euo pipefail
+
+# Don't execute main logic if script is being sourced
+[[ "${BASH_SOURCE[0]}" != "${0}" ]] && return 0
 
 display_help() {
   cat <<EOF

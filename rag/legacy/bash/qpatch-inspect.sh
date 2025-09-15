@@ -5,6 +5,9 @@
 # Flags: [ID] --from-file FILE --dir DIR --tool {git|patch|auto}
 set -euo pipefail
 
+# Don't execute main logic if script is being sourced
+[[ "${BASH_SOURCE[0]}" != "${0}" ]] && return 0
+
 QA_DIR="${QA_DIR:-$HOME/.qa}"
 DB="$QA_DIR/db"
 DIR="."; TOOL="auto"

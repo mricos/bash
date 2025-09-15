@@ -9,6 +9,9 @@
 
 set -euo pipefail
 
+# Don't execute main logic if script is being sourced
+[[ "${BASH_SOURCE[0]}" != "${0}" ]] && return 0
+
 # --- Configuration ---
 QA_DIR="${QA_DIR:-$HOME/.qa}"
 DB_DIR="$QA_DIR/db"

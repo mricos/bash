@@ -7,13 +7,16 @@
 DEFAULT_SEARCH_DIR="/root/src"
 # --- End Configuration ---
 
+# Don't execute main logic if script is being sourced
+[[ "${BASH_SOURCE[0]}" != "${0}" ]] && return 0
+
 # Usage:
 #   ./rankfind [input-file] [search-directory]
 #
 # - If [input-file] is omitted or '-', reads from stdin.
 # - If [search-directory] is omitted, uses DEFAULT_SEARCH_DIR.
 
-INPUT_FILE="$1"
+INPUT_FILE="${1:-}"
 SEARCH_DIR="${2:-$DEFAULT_SEARCH_DIR}" # Use provided search dir or default
 
 # --- Input Handling ---
